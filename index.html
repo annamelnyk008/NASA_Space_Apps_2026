@@ -1,9 +1,5 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Солнечная система</title>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Солнечная система</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&display=swap">
   <link rel="stylesheet" href="styles/variables.css">
   <link rel="stylesheet" href="styles/base.css">
@@ -13,8 +9,6 @@
   <link rel="stylesheet" href="styles/labels.css">
   <link rel="stylesheet" href="styles/pegman.css">
   <link rel="stylesheet" href="styles/surface.css">
-</head>
-<body>
 <div id="stage" role="img" aria-label="Анимированная 3D-модель солнечной системы: Солнце, восемь планет и пояс астероидов"></div>
 
 <button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model" class="tag-btn fixed left-0 top-0 z-10 flex flex-col items-center select-none" style="pointer-events:none">
@@ -141,6 +135,19 @@
   </div>
 </div>
 
+<div id="land-pin" hidden>
+  <svg class="lp-pin" viewBox="0 0 24 34" aria-hidden="true"><path d="M12 1C5.9 1 1 5.8 1 11.8 1 20 12 33 12 33s11-13 11-21.2C23 5.8 18.1 1 12 1z" fill="#ea4335" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11.8" r="4.3" fill="#7a1a12"/></svg>
+  <div class="lp-card">
+    <canvas id="lp-view" width="288" height="162"></canvas>
+    <p class="lp-title" id="lp-title"></p>
+    <p class="lp-sub" id="lp-sub"></p>
+    <div class="lp-btns">
+      <button type="button" id="lp-go" class="chip lp-go">Land here</button>
+      <button type="button" id="lp-cancel" class="chip">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="peg-ghost" hidden><svg viewBox="0 0 28 40" fill="currentColor" aria-hidden="true"><ellipse cx="14" cy="38" rx="8" ry="2" fill="rgba(0,0,0,.35)"/><circle cx="14" cy="9" r="6.5"/><path d="M3 37c0-12 3.5-20 11-20s11 8 11 20z"/></svg></div>
 
 <div id="veil">
@@ -171,5 +178,5 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="js/app.js"></script>
-</body>
-</html>
+
+</body></html>

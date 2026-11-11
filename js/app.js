@@ -2202,7 +2202,7 @@ varying vec2 vP;
 void main(){ vP = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }
 `;
   var SURF_BODY = `
-uniform sampler2D uColor;
+uniform sampler2D uColor;   // цвет: мозаика NASA (тот же уровень, что в общем виде)
 uniform vec2 uSeed;      // сдвиг процедурных деталей (км)
 uniform vec3 uSun;       // направление на Солнце в локальных осях E,N,Up
 uniform vec2 uView;      // курс (от севера по часовой), наклон
@@ -2230,69 +2230,16 @@ float fbm2(vec2 p){
   return s - 0.469;
 }
 
-// кратеры: ячейка cell км, вероятность prob, глубина = depthK * радиус
-float cra(vec2 p, float cell, float prob, float depthK, float w){
-  if(w <= 0.002) return 0.0;
-  vec2 g = p / cell, id = floor(g), f = g - id;
-  float h = 0.0;
-  for(int j = -1; j <= 1; j++){
-    for(int i = -1; i <= 1; i++){
-      vec2 o = vec2(float(i), float(j));
-      vec3 r = h32(id + o + 11.7);
-      if(r.x > prob) continue;
-      vec3 r2 = h32(id + o + 53.1);
-      vec2 cen = o + 0.22 + 0.56 * r2.xy;
-      float u = r.x / prob;
-      float rad = mix(0.10, 0.46, u * u);
-      float d = length(f - cen) / rad;
-      if(d > 2.2) continue;
-      float rk = rad * cell;
-      float depth = depthK * rk * (0.6 + 0.4 * r2.z);
-      float bowl = d < 1.0 ? -depth * (1.0 - d * d) : 0.0;
-      float e = (d - 1.0) / 0.30;
-      float rim = 0.20 * depth * exp(-e * e);
-      h += bowl + rim;
-    }
-  }
-  return h * w;
-}
-// камни: ячейка cell км, максимальный радиус maxR км
-float rocks(vec2 p, float cell, float maxR, float w){
-  if(w <= 0.002) return 0.0;
-  vec2 g = p / cell, id = floor(g), f = g - id;
-  float h = 0.0;
-  for(int j = -1; j <= 1; j++){
-    for(int i = -1; i <= 1; i++){
-      vec2 o = vec2(float(i), float(j));
-      vec3 r = h32(id + o + 91.3);
-      if(r.x > 0.5) continue;
-      vec2 cen = o + 0.2 + 0.6 * r.yz;
-      float rr = maxR * (0.25 + 0.75 * r.z * r.z);
-      float dd = length((f - cen) * cell);
-      if(dd < rr){
-        float q = dd / rr;
-        h = max(h, rr * (0.55 + 0.35 * r.y) * sqrt(1.0 - q * q));
-      }
-    }
-  }
-  return h * w;
-}
-
 vec2 toUV(vec2 q){
   float lat = uObsLL.y + q.y / R_KM;
   float lon = uObsLL.x + q.x / (R_KM * max(cos(uObsLL.y), 0.05));
   return vec2(lon / TWO_PI + 0.5, lat / PI + 0.5);
 }
 
-// высота поверхности (км) над касательной плоскостью наблюдателя; t — расстояние от камеры
+// высота поверхности (км) над касательной плоскостью наблюдателя; t — расстояние от камеры.
+// Только крупная форма: сглаженная карта высот той же модели Марса (почти голый шарик), без добавочных холмов, кратеров и камней и без LOD: везде одно и то же бикубическое сглаживание.
 float gnd(vec2 q, float t){
-  gCub = 1.0 - smoothstep(25.0, 80.0, t);
-  float h = hKmS(q) - gH0;
-  vec2 p = q + uSeed;
-  h += 0.150 * fbm2(p * 0.3);                  // крупные холмы (до 150 м)
-  h += 0.050 * fbm2(p * 2.0);                  // средние барханы
-  h += cra(p, 4.0, 0.30, 0.34, 1.0);           // только огромные кратеры
-  return h - dot(q, q) / (2.0 * R_KM);
+  return hKmS(q) - gH0 - dot(q, q) / (2.0 * R_KM);
 }
 
 vec3 skyRad(vec3 rd){
@@ -2343,6 +2290,55 @@ vec3 starField(vec3 dw){
   return col * nightF * 0.20 * vec3(1.0);
 }
 
+// ================= ЦВЕТ ПОВЕРХНОСТИ =================
+// Основа — мозаика NASA (Viking), как в общем виде. Поверх — только мелкая процедурная детализация цвета
+// (пятна, песок, камешки): рельефа она не добавляет.
+// плоский шум вокруг наблюдателя (λ в км); гаснет, когда детали мельче пикселя (fp — км на пиксель)
+float oP(vec2 q, float lam, float fp, float sd){
+  float w = 1.0 - smoothstep(0.15, 0.45, fp / lam);
+  if(w <= 0.0) return 0.5;
+  return 0.5 + (n2(q / lam + fract(uSeed / lam * 0.7071 + vec2(sd, sd * 1.7)) + vec2(53.0 + 11.0 * sd, 91.0 + 7.0 * sd)) - 0.5) * w;   // + целое смещение: хеш в нуле даёт 0
+}
+// небольшой поворот оттенка (YIQ), угол в радианах
+vec3 hueRot(vec3 c, float a){
+  float ca = cos(a), sa = sin(a);
+  float Y = dot(c, vec3(0.299, 0.587, 0.114)), I = dot(c, vec3(0.596, -0.274, -0.322)), Q = dot(c, vec3(0.211, -0.523, 0.312));
+  float I2 = I * ca - Q * sa, Q2 = I * sa + Q * ca;
+  return vec3(Y + 0.956 * I2 + 0.621 * Q2, Y - 0.272 * I2 - 0.647 * Q2, Y - 1.106 * I2 + 1.703 * Q2);
+}
+vec3 surfAlbedo(vec2 q, float fp){
+  vec3 base = texture2D(uColor, toUV(q)).rgb;
+  // пятна и поля: от километров до метров (с лёгким искажением координат — получаются натуральные разводы)
+  vec2 qw = q + (vec2(oP(q, 0.35, fp, 3.0), oP(q + 7.7, 0.35, fp, 5.0)) - 0.5) * 0.06;
+  float m = 0.0, mw = 0.0, amp = 0.5, lam = 9.0;
+  for(int i = 0; i < 9; i++){ m += amp * oP(qw, lam, fp, 7.0 * float(i)); mw += amp; amp *= 0.66; lam *= 0.45; }
+  m /= mw;
+  // гравий и песок: от 25 м до 1 см
+  float f = 0.0, fw = 0.0; amp = 0.5; lam = 0.025;
+  for(int i = 0; i < 12; i++){ f += amp * oP(qw, lam, fp, 90.0 + 7.0 * float(i)); fw += amp; amp *= 0.76; lam *= 0.5; }
+  f /= fw;
+  float M = clamp((m - 0.5) * 2.6 + 0.5, 0.0, 1.0);
+  float F = clamp((f - 0.5) * 2.8 + 0.5, 0.0, 1.0);
+  vec3 c = base;
+  c = mix(c * vec3(0.96, 0.99, 1.04), c * vec3(1.04, 1.0, 0.95), M);       // тёплые и прохладные пятна
+  c *= 0.80 + 0.40 * M;
+  c *= 0.84 + 0.32 * F;
+  // песчаная рябь: тонкие полосы по ветру (только цвет)
+  float rw = (1.0 - smoothstep(0.15, 0.45, fp / 0.0016));
+  float rip = sin(dot(qw, vec2(0.94, 0.34)) / 0.0016 + 6.0 * oP(q, 0.02, fp, 31.0));
+  c *= 1.0 + 0.035 * rip * rw * smoothstep(0.35, 0.65, oP(q, 0.3, fp, 44.0));
+  // изредка: участки с чуть другим оттенком и насыщенностью (небольшие изменения)
+  float pm = smoothstep(0.60, 0.78, oP(q, 0.16, fp, 160.0)) * smoothstep(0.45, 0.62, oP(q, 1.2, fp, 170.0));
+  float ang = (oP(q, 0.9, fp, 180.0) - 0.5) * 0.9;
+  float sat = 1.0 + (oP(q, 0.7, fp, 190.0) - 0.5) * 0.5;
+  float lum = dot(c, vec3(0.30, 0.59, 0.11));
+  vec3 pc = mix(vec3(lum), hueRot(c, ang), 1.0);
+  pc = mix(vec3(lum), pc, sat);
+  c = mix(c, pc, pm);
+  c = mix(c, vec3(dot(c, vec3(0.30, 0.59, 0.11))), 0.12);                    // естественнее: меньше насыщенности
+  return pow(clamp(c, 0.0, 1.0), vec3(2.2));
+}
+
 void main(){
   gCub = 1.0;
   gH0 = hKmS(vec2(0.0));
@@ -2361,7 +2357,7 @@ void main(){
   vec3 ro = vec3(0.0, 0.0, eyeZ);
 
   float e = uSun.z;
-  float tMax = 700.0;
+  float tMax = 260.0;   // дальше всё равно сплошная дымка
   float t = 0.0004, tPrev = 0.0;
   bool hit = false;
   if(rd.z > 0.0) tMax = min(tMax, (40.0 - eyeZ) / rd.z);
@@ -2390,53 +2386,15 @@ if(hit){
     vec3 P = ro + rd * t;
     vec2 q = P.xy;
 
-    // --- НОРМАЛИ (Рельеф) ---
-    float ee = max(0.0003, t * 0.0020); // чуть больший шаг → мягче нормали
+    // --- НОРМАЛИ: только крупная форма модели, широкий шаг = гладко ---
+    float ee = max(0.01, t * 0.004);
     float h0 = gnd(q, t);
     float hx = gnd(q + vec2(ee, 0.0), t);
     float hy = gnd(q + vec2(0.0, ee), t);
     vec3 N = normalize(vec3(-(hx - h0) / ee, -(hy - h0) / ee, 1.0));
 
-
-    // --- МИКРО-РЕЛЬЕФ ---
-    float nearK = exp(-t * 0.05); // быстрее затухает
-    vec2 sp2 = q + uSeed;
-    if(nearK > 0.015){
-      // Барханы (ещё мягче)
-      vec2 windDir = normalize(vec2(0.8, 0.2));
-      float phase = dot(q, windDir) * 60.0 + n2(q * 1.5) * 8.0;
-      float rippleSlope = cos(phase) * 0.055 * nearK; // было 0.10
-      N.x -= windDir.x * rippleSlope;
-      N.y -= windDir.y * rippleSlope;
-
-
-      // Гравий (очень слабый)
-      vec2 pp = sp2 * 320.0;
-      float bx = n2(pp + vec2(0.5, 0.0)) - n2(pp - vec2(0.5, 0.0));
-      float by = n2(pp + vec2(0.0, 0.5)) - n2(pp - vec2(0.0, 0.5));
-      N.x -= bx * 0.35 * nearK; // было 0.8
-      N.y -= by * 0.35 * nearK;
-      N = normalize(N);
-    }
-
-
-    // --- ЦВЕТ И ТЕКСТУРА ---
-    float macroNoise = fbm2(sp2 * 0.45);
-    // Более приглушённые, менее контрастные тона
-    vec3 alb = mix(vec3(0.38, 0.23, 0.15), vec3(0.52, 0.31, 0.21), smoothstep(-0.15, 0.18, macroNoise));
-    float patchNoise = fbm2(sp2 * 1.7);
-    alb = mix(alb, vec3(0.28, 0.17, 0.12), smoothstep(0.12, 0.32, patchNoise) * 0.35);
-    // Песок — почти без контраста
-    float sand = n2(sp2 * 260.0);
-    alb *= 0.94 + 0.10 * sand;
-
-
-    // КАМНИ (меньше и светлее)
-    float rock1 = smoothstep(0.78, 0.86, n2(sp2 * 70.0));
-    float rock2 = smoothstep(0.82, 0.90, n2(sp2 * 180.0));
-    float rockMask = max(rock1, rock2) * nearK * 0.7;
-    // Камни почти того же тона, что и песок
-    alb = mix(alb, vec3(0.22, 0.15, 0.12), rockMask * 0.65);
+    // --- ЦВЕТ: процедурная текстура вместо тайлов NASA ---
+    vec3 alb = surfAlbedo(q, t * uPx);
 
 
     // --- ТЕНИ РЕЛЬЕФА (Трассировка) ---
@@ -2467,7 +2425,6 @@ if(hit){
 
     // Мягкий Ambient Occlusion
     float ao = clamp(N.z * 0.9 + 0.35, 0.55, 1.0);
-    ao *= (1.0 - rockMask * 0.18);
 
 
     // Финальный цвет
@@ -2477,8 +2434,8 @@ if(hit){
     // --- ДЫМКА ---
     vec3 fogDir = normalize(vec3(rd.xy, 0.04));
     vec3 fogC = skyRad(fogDir);
-    float fogA = 1.0 - exp(-(0.032 * min(t, 25.0) + 0.0016 * max(t - 25.0, 0.0)));
-    fogA = max(fogA, smoothstep(180.0, 550.0, t));
+    float fogA = 1.0 - exp(-(0.025 * min(t, 20.0) + 0.010 * max(t - 20.0, 0.0)));   // дымка ближе: далёкие неровности не видны
+    fogA = max(fogA, smoothstep(80.0, 230.0, t));
     col = mix(col, fogC, fogA);
   } else {
     col = skyRad(rd);
@@ -2563,7 +2520,8 @@ void main(){
         uDetH: { value: marsMat.uniforms.uDetH.value },
         uDetC: { value: marsMat.uniforms.uDetC.value },
         uDetRect: { value: marsMat.uniforms.uDetRect.value.clone() },
-        uDetOn: { value: marsMat.uniforms.uDetOn.value },
+        uDetOn: { value: 0 },
+        uDetHOn: { value: 0 },
         uRes: { value: new THREE.Vector2(2048, 1024) },
         uExag: { value: 1 },
         uObsLL: { value: new THREE.Vector2(0, 0) },
@@ -2689,45 +2647,64 @@ void main(){
   }
 
   // ---- Солнце в локальных осях (восток, север, зенит) -------------------------
-  function surfSun() {
-    var ss = marsSolar(Date.now() + surf.tOff);
-    surf.ss = ss;
+  // Солнце и звёзды для точки (lon, lat в радианах): направление на Солнце в осях E,N,Up и матрица звёзд
+  function sunFor(lon, lat, tOff) {
+    var ss = marsSolar(Date.now() + tOff);
     var la = ss.lat * D2R, lo = ss.lonE * D2R;
     var Lx = Math.cos(la) * Math.cos(lo), Ly = Math.sin(la), Lz = -Math.cos(la) * Math.sin(lo);
-    var sl = Math.sin(surf.lat), cl = Math.cos(surf.lat), so = Math.sin(surf.lon), co = Math.cos(surf.lon);
+    var sl = Math.sin(lat), cl = Math.cos(lat), so = Math.sin(lon), co = Math.cos(lon);
     var E = [-so, 0, -co], Nr = [-sl * co, cl, sl * so], Nn = [cl * co, sl, -cl * so];
-    surf.sE = Lx * E[0] + Ly * E[1] + Lz * E[2];
-    surf.sN = Lx * Nr[0] + Ly * Nr[1] + Lz * Nr[2];
-    surf.sU = Lx * Nn[0] + Ly * Nn[1] + Lz * Nn[2];
-    // небесная система: Солнце на долготе 0 (звёзды неподвижны, планета вращается)
     var cs = Math.cos(lo), sn = Math.sin(lo);
-    function rot(v) { return [v[0] * cs - v[2] * sn, v[1], v[2] * cs + v[0] * sn]; }
-    var c0 = rot(E), c1 = rot(Nr), c2 = rot(Nn);
-    var mu = marsMat.uniforms;
+    function rot(v) { return [v[0] * cs - v[2] * sn, v[1], v[2] * cs + v[0] * sn]; }   // небесная система: Солнце на долготе 0
+    return {
+      ss: ss,
+      sE: Lx * E[0] + Ly * E[1] + Lz * E[2], sN: Lx * Nr[0] + Ly * Nr[1] + Lz * Nr[2], sU: Lx * Nn[0] + Ly * Nn[1] + Lz * Nn[2],
+      c0: rot(E), c1: rot(Nr), c2: rot(Nn)
+    };
+  }
+  function surfSun() {
+    var S = sunFor(surf.lon, surf.lat, surf.tOff);
+    surf.ss = S.ss; surf.sE = S.sE; surf.sN = S.sN; surf.sU = S.sU;
+    var c0 = S.c0, c1 = S.c1, c2 = S.c2;
     var u0 = surf.lon / (2 * Math.PI) + 0.5, v0 = surf.lat / Math.PI + 0.5;
     eachSM(function (m) {
       m.uniforms.uStar.value.set(c0[0], c1[0], c2[0], c0[1], c1[1], c2[1], c0[2], c1[2], c2[2]);
       m.uniforms.uSun.value.set(surf.sE, surf.sN, surf.sU);
       // точное (double) положение наблюдателя в текселях: целая и дробная части отдельно (float32 в шейдере даёт ступени ~1 м)
-      m.uniforms.uDetRect.value.copy(mu.uDetRect.value);
-      m.uniforms.uDetOn.value = mu.uDetOn.value;
-      var rs = m.uniforms.uRes.value, dr = m.uniforms.uDetRect.value;
+      var rs = m.uniforms.uRes.value;
       var bx = u0 * rs.x, by = v0 * rs.y;
       m.uniforms.uP0.value.set(Math.floor(bx), Math.floor(by), bx - Math.floor(bx), by - Math.floor(by));
-      var dx = (u0 - dr.x) / dr.z * 1024, dy = (v0 - dr.y) / dr.w * 1024;
-      m.uniforms.uD0.value.set(Math.floor(dx), Math.floor(dy), dx - Math.floor(dx), dy - Math.floor(dy));
     });
   }
 
+  // Высоты: сглаженная копия карты модели (1024×512, ≈20 км/px) — почти голый шарик без артефактов; цвет — мозаика NASA из общего вида.
+  var surfHeight = null, surfHeightP = null;
+  function loadSurfHeight() {
+    if (!surfHeightP) surfHeightP = new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        var t = new THREE.Texture(im);
+        t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+        t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true;
+        resolve({ tex: t, w: im.width, h: im.height });
+      };
+      im.onerror = function () { resolve(null); };
+      im.src = 'assets/mars-height-surface.png';
+    });
+    return surfHeightP;
+  }
   function applySurfTex() {
     var use = -1;
     for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
-    if (use < 0 || use === surf.tex) return;
-    surf.tex = use;
+    if (use < 0) return;
+    var key = use + (surfHeight ? 100 : 0);
+    if (key === surf.tex) return;
+    surf.tex = key;
+    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };   // нет сглаженной карты — берём обычную
     eachSM(function (m) {
       m.uniforms.uColor.value = texLv[use].color;
-      m.uniforms.uHeight.value = texLv[use].height;
-      m.uniforms.uRes.value.set(H_W, H_H);
+      m.uniforms.uHeight.value = H.tex;
+      m.uniforms.uRes.value.set(H.w, H.h);
     });
   }
 
@@ -2877,11 +2854,11 @@ void main(){
       renderer.setPixelRatio(Math.min(BASE_PR, 1.5));
       resize();
       renderer.domElement.style.cursor = 'grab';
-      return Promise.race([requestLevel(1), wait(5000)]);
+      return Promise.race([Promise.all([requestLevel(1), loadSurfHeight().then(function (h) { surfHeight = h; })]), wait(8000)]);
     }).then(function () {
       applySurfTex();
       tileWant = null;
-      tileUpdate(0, 0, false);   // в режиме человечка окно детализации не используется
+      tileUpdate(0, 0, false);   // окно детализации в режиме человечка не используется
       return true;
     }).then(function () {
       surfSun();
@@ -3014,7 +2991,8 @@ void main(){
     pegArmed = on;
     if (on && homeArmed) setHomeArmed(false);
     pegBtn.setAttribute('aria-pressed', String(on));
-    if (marsHint) marsHint.textContent = on ? 'Click a spot on the planet to land there' : marsHintText;
+    if (marsHint) marsHint.textContent = on ? 'Click a spot to drop a pin, then press “Land here” · click elsewhere to move the pin' : marsHintText;
+    if (!on) clearPin();
     if (mode === 'mars') renderer.domElement.style.cursor = on ? 'crosshair' : 'grab';
   }
   function pegEnd() {
@@ -3046,7 +3024,7 @@ void main(){
     pegEnd();
     if (d.moved) {
       var hit = pickMars(e.clientX, e.clientY);
-      if (hit) dropExplorer(hit.lon, hit.lat);
+      if (hit) { setArmed(true); placePin(hit.lon, hit.lat); }
     } else {
       setArmed(!pegArmed);
     }
@@ -3057,9 +3035,95 @@ void main(){
   });
   cv.addEventListener('click', function (e) {
     if (mode !== 'mars' || !pegArmed || transitioning) return;
+    if (Math.hypot(e.clientX - homeDown.x, e.clientY - homeDown.y) > 6) return;   // это было вращение шара, а не клик
     var hit = pickMars(e.clientX, e.clientY);
-    if (hit) dropExplorer(hit.lon, hit.lat);
+    if (hit) placePin(hit.lon, hit.lat);
   });
+
+  // ---- Выбор точки посадки: красная метка + кнопка «Land here» + окно предпросмотра ----
+  var landPin = null, lpToken = 0, lpRT = null;
+  var lpEl = document.getElementById('land-pin'), lpCard = lpEl.querySelector('.lp-card');
+  var lpView = document.getElementById('lp-view'), lpTitle = document.getElementById('lp-title'), lpSub = document.getElementById('lp-sub');
+  var lpGo = document.getElementById('lp-go'), lpCancel = document.getElementById('lp-cancel');
+  var lpCtx = lpView.getContext('2d');
+  var lpV = new THREE.Vector3(), lpC = new THREE.Vector3();
+  function clearPin() { landPin = null; lpToken++; lpEl.hidden = true; }
+  function placePin(lonDeg, latDeg) {
+    landPin = { lon: lonDeg, lat: latDeg };
+    lpEl.hidden = false;
+    lpTitle.textContent = fmtLonLat(lonDeg, latDeg);
+    var h = siteHeightKm(lonDeg, latDeg);
+    lpSub.textContent = h === null ? '' : 'elevation ' + (h < 0 ? '−' : '') + Math.abs(h).toFixed(1) + ' km';
+    lpView.classList.add('wait');
+    updateLandPin();
+    var tk = ++lpToken;
+    Promise.race([Promise.all([requestLevel(1), loadSurfHeight()]), wait(8000)]).then(function (r) {
+      if (r && r[1]) surfHeight = r[1];
+      if (tk !== lpToken || !landPin || mode !== 'mars') return;
+      return wait(30);
+    }).then(function () {
+      if (tk !== lpToken || !landPin || mode !== 'mars') return;
+      try { drawPreview(landPin.lon, landPin.lat); lpView.classList.remove('wait'); } catch (err) { /* предпросмотр необязателен */ }
+    });
+  }
+  // маленький кадр «что увидим при посадке»: тот же шейдер поверхности, один раз, в маленькую текстуру
+  function drawPreview(lonDeg, latDeg) {
+    if (!surfScene) buildSurface();
+    var use = -1;
+    for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
+    if (use < 0) return;
+    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };
+    var lon = lonDeg * D2R, lat = Math.max(-1.52, Math.min(1.52, latDeg * D2R)), cl = Math.max(0.05, Math.cos(lat));
+    var S = sunFor(lon, lat, 0);
+    var alt = Math.asin(Math.max(-1, Math.min(1, S.sU))), az = Math.atan2(S.sE, S.sN);
+    var W = lpView.width, Ht = lpView.height, th = Math.tan(35 * D2R);
+    var u = surfMat.uniforms;
+    u.uColor.value = texLv[use].color; u.uHeight.value = H.tex; u.uRes.value.set(H.w, H.h);
+    u.uObsLL.value.set(lon, lat);
+    u.uSeed.value.set((lon * 3389.5 * cl) % 200, (lat * 3389.5) % 200);
+    var bx = (lon / (2 * Math.PI) + 0.5) * H.w, by = (lat / Math.PI + 0.5) * H.h;
+    u.uP0.value.set(Math.floor(bx), Math.floor(by), bx - Math.floor(bx), by - Math.floor(by));
+    u.uSun.value.set(S.sE, S.sN, S.sU);
+    u.uStar.value.set(S.c0[0], S.c1[0], S.c2[0], S.c0[1], S.c1[1], S.c2[1], S.c0[2], S.c1[2], S.c2[2]);
+    u.uView.value.set(alt < 0.45 ? az : az + Math.PI, 0.07);
+    u.uScr.value.set(th, W / Ht);
+    u.uPx.value = 2 * th / Ht;
+    if (!lpRT) lpRT = new THREE.WebGLRenderTarget(W, Ht, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false, stencilBuffer: false });
+    renderer.setRenderTarget(lpRT);
+    renderer.render(surfScene, surfCam);
+    renderer.setRenderTarget(null);
+    var buf = new Uint8Array(W * Ht * 4);
+    renderer.readRenderTargetPixels(lpRT, 0, 0, W, Ht, buf);
+    var img = lpCtx.createImageData(W, Ht);
+    for (var y = 0; y < Ht; y++) img.data.set(buf.subarray((Ht - 1 - y) * W * 4, (Ht - y) * W * 4), y * W * 4);
+    lpCtx.putImageData(img, 0, 0);
+    surf.tex = -1;   // материалы поверхности перенастроены предпросмотром — при посадке привяжем заново
+    renderDirty = true;
+  }
+  // метка «прикреплена» к точке шара: пересчитываем экранное положение каждый кадр
+  function updateLandPin() {
+    if (!landPin || mode !== 'mars' || !marsCam) return;
+    var lo = landPin.lon * D2R, la = landPin.lat * D2R;
+    lpV.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
+    marsSpin.localToWorld(lpV);
+    lpC.copy(marsCam.position).sub(lpV);
+    var facing = lpV.dot(lpC) > 0;
+    lpEl.style.visibility = facing ? 'visible' : 'hidden';
+    if (!facing) return;
+    lpV.project(marsCam);
+    var x = (lpV.x * 0.5 + 0.5) * window.innerWidth, y = (-lpV.y * 0.5 + 0.5) * window.innerHeight;
+    lpEl.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
+    var cw = lpCard.offsetWidth || 210, ch = lpCard.offsetHeight || 190;
+    var left = (x + 24 + cw > window.innerWidth - 8) ? -(cw + 24) : 24;
+    var top = Math.max(8 - y, Math.min(window.innerHeight - 8 - ch - y, -ch * 0.5 - 18));
+    lpCard.style.left = left + 'px';
+    lpCard.style.top = top + 'px';
+  }
+  lpGo.addEventListener('click', function () {
+    if (!landPin || transitioning || mode !== 'mars') return;
+    dropExplorer(landPin.lon, landPin.lat);
+  });
+  lpCancel.addEventListener('click', clearPin);
 
   // ---- Управление в режиме поверхности --------------------------------------
   var sptr = {}, sPinch = 0;
@@ -3161,6 +3225,7 @@ void main(){
       marsAcc = 0;
       renderDirty = false;
       renderer.render(marsScene, marsCam);
+      updateLandPin();
       return;
     }
     if (mode === 'surface') {
