@@ -1094,6 +1094,9 @@ void main(){
   float amb = (uMode < 0.5) ? 0.012 : 0.05;
   vec3 sunC = vec3(1.0, 0.93, 0.82) * 2.2;
   vec3 lit = albedo * (vec3(amb, amb * 1.1, amb * 1.6) + sunC * ndl * term * mix(0.65, 1.0, shadow));
+#ifdef FLAT
+  lit = albedo * (0.80 + 0.45 * ndl);   // плоская карта: ровный свет с мягким рельефом, без ночной стороны
+#endif
   if(uMode > 1.5) lit = albedo * (0.62 + 0.38 * ndl) * 1.1;
 
   // thin atmosphere: faint warm haze on the lit limb, cool tint at sunset
@@ -2631,6 +2634,7 @@ void main(){
   var invM = new THREE.Matrix4(), pkO = new THREE.Vector3(), pkD = new THREE.Vector3();
   function pickMars(cx, cy) {
     if (!marsCam || mode !== 'mars') return null;
+    if (flatOn) return pickFlat(cx, cy);
     marsRoot.updateMatrixWorld(true);
     marsCam.updateMatrixWorld(true);
     ndc.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
@@ -3103,11 +3107,19 @@ void main(){
   // метка «прикреплена» к точке шара: пересчитываем экранное положение каждый кадр
   function updateLandPin() {
     if (!landPin || mode !== 'mars' || !marsCam) return;
-    var lo = landPin.lon * D2R, la = landPin.lat * D2R;
-    lpV.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
-    marsSpin.localToWorld(lpV);
-    lpC.copy(marsCam.position).sub(lpV);
-    var facing = lpV.dot(lpC) > 0;
+    var facing = true;
+    if (flatOn) {
+      var px = landPin.lon / 90, c0 = fl.lon / 90;   // ближайшая к центру копия карты
+      while (px - c0 > 2) px -= 4;
+      while (px - c0 < -2) px += 4;
+      lpV.set(px, landPin.lat / 90, 0);
+    } else {
+      var lo = landPin.lon * D2R, la = landPin.lat * D2R;
+      lpV.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
+      marsSpin.localToWorld(lpV);
+      lpC.copy(marsCam.position).sub(lpV);
+      facing = lpV.dot(lpC) > 0;
+    }
     lpEl.style.visibility = facing ? 'visible' : 'hidden';
     if (!facing) return;
     lpV.project(marsCam);
@@ -3206,6 +3218,145 @@ void main(){
   });
 
 
+  // ---- Плоский вид: развёртка Марса (equirectangular) вместо шара ----------------
+  // Те же текстуры, те же LOD (уровни и окно детализации), те же режимы Layout, сетка, домашний сектор и «человечек».
+  // Масштаб карты привязан к mv.dist (как у шара), поэтому уровни детализации выбираются той же логикой:
+  //   mv.dist = FLAT_D0 + FLAT_K · s,  где s — половина высоты видимой части карты в единицах «вся карта по высоте = 2».
+  var flatOn = false, flatScene = null, flatMat = null, flatFly = null;
+  var fl = { lon: 0, lat: 0 };                   // центр карты, градусы
+  var FLAT_D0 = 1.05, FLAT_K = 4.0, FLAT_S_MIN = 0.04;
+  var btnView = document.getElementById('btn-view');
+  var flatPan = {};
+
+  var MARS_FLAT_VERT = `
+varying vec2 vUv;
+varying vec3 vDir;
+varying vec3 vViewPos;
+varying vec3 vNormalV;
+void main(){
+  vUv = uv;
+  float lon = (uv.x - 0.5) * 6.28318530718;
+  float lat = (uv.y - 0.5) * 3.14159265359;
+  vDir = vec3(cos(lat) * cos(lon), sin(lat), -cos(lat) * sin(lon));
+  vec4 mvp = modelViewMatrix * vec4(position, 1.0);
+  vViewPos = mvp.xyz;
+  vNormalV = normalize(normalMatrix * vec3(0.0, 0.0, 1.0));
+  gl_Position = projectionMatrix * mvp;
+}
+`;
+
+  function wrap180(a) { a = (a + 180) % 360; if (a < 0) a += 360; return a - 180; }
+  function flatFit() { return Math.max(1, 2 / (window.innerWidth / window.innerHeight)); }   // s, при котором видна вся карта
+  function flatS() { return Math.max(FLAT_S_MIN, Math.min(flatFit(), (mv.dist - FLAT_D0) / FLAT_K)); }
+  function flatClampLat() {
+    var maxLat = Math.max(0, 90 * (1 - flatS()));
+    fl.lat = Math.max(-maxLat, Math.min(maxLat, fl.lat));
+  }
+
+  function buildFlat() {
+    flatScene = new THREE.Scene();
+    flatMat = new THREE.ShaderMaterial({
+      uniforms: marsMat.uniforms,                  // общие uniform'ы: текстуры, окно детализации, режим слоя, Солнце, сетка
+      vertexShader: MARS_FLAT_VERT,
+      fragmentShader: MARS_FRAG,
+      defines: { SHADOW_STEPS: 0, CRATER_LAYERS: 2, FLAT: 1 },
+      extensions: { derivatives: true }
+    });
+    var geo = new THREE.PlaneGeometry(4, 2, 1, 1);   // 4 × 2 единицы: x = lon/90, y = lat/90
+    for (var i = -1; i <= 1; i++) {                  // три копии, чтобы карта замыкалась по долготе
+      var m = new THREE.Mesh(geo, flatMat);
+      m.position.x = i * 4;
+      m.frustumCulled = false;
+      flatScene.add(m);
+    }
+  }
+
+  function setFlat(on) {
+    if (on === flatOn || transitioning || mode !== 'mars') return;
+    if (on) {
+      if (!flatScene) buildFlat();
+      marsSpin.getWorldQuaternion(tmpQ);
+      tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert());
+      fl.lon = Math.atan2(-tmpV.z, tmpV.x) / D2R;
+      fl.lat = Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R;
+      flatOn = true;
+      mv.auto = false; mv.fly = false; mv.userZoomed = true; flatFly = null;
+      labelsEl.style.visibility = 'hidden';        // подписи сетки привязаны к шару
+      marsHintText = 'Drag to pan · scroll or pinch to zoom · Explorer and Home work on the map too';
+      renderer.compile(flatScene, marsCam);
+    } else {
+      flatOn = false;
+      flatFly = null;
+      labelsEl.style.visibility = '';
+      marsHintText = marsHintInitial;
+    }
+    if (marsHint && !pegArmed && !homeArmed) marsHint.textContent = marsHintText;
+    btnView.setAttribute('aria-checked', String(flatOn));
+    renderDirty = true;
+  }
+  var marsHintInitial = marsHintText;
+  btnView.addEventListener('click', function () { setFlat(!flatOn); });
+
+  // перед updateMars: центр и масштаб карты → mv (по ним updateMars выбирает уровни и окно детализации)
+  function prepFlat(dt) {
+    mv.auto = false; mv.vSpin = 0; mv.vPitch = 0;
+    var lo = FLAT_D0 + FLAT_K * FLAT_S_MIN, hi = FLAT_D0 + FLAT_K * flatFit();
+    mv.tDist = Math.max(lo, Math.min(hi, mv.tDist));
+    mv.dist = Math.max(lo, Math.min(hi, mv.dist));
+    if (mv.fly) {                                  // flyTo() из чипов, «Whole planet» и возврата с поверхности
+      flatFly = { lon: wrap180(-mv.tSpin / D2R - 90), lat: mv.tPitch / D2R };
+      mv.fly = false;
+    }
+    if (flatFly) {
+      var k = 1 - Math.exp(-dt * 4), dl = wrap180(flatFly.lon - fl.lon), da = flatFly.lat - fl.lat;
+      fl.lon = wrap180(fl.lon + dl * k);
+      fl.lat += da * k;
+      if (Math.abs(dl) < 0.05 && Math.abs(da) < 0.05) flatFly = null;
+      renderDirty = true;
+    }
+    flatClampLat();
+    var f = faceAngles(fl.lon, fl.lat);
+    mv.spin = f.spin; mv.pitch = f.pitch;
+  }
+  // после updateMars: камера смотрит прямо на плоскость
+  function updateFlat() {
+    var s = flatS(), zc = s / Math.tan(15 * D2R);   // fov камеры Марса = 30°
+    marsCam.position.set(fl.lon / 90, fl.lat / 90, zc);
+    marsCam.quaternion.set(0, 0, 0, 1);
+    marsCam.updateMatrixWorld(true);
+  }
+  // экранная точка → долгота/широта на карте
+  function pickFlat(cx, cy) {
+    var s = flatS(), visH = 2 * s, asp = window.innerWidth / window.innerHeight;
+    var x = fl.lon / 90 + ((cx / window.innerWidth) * 2 - 1) * visH * asp / 2;
+    var y = fl.lat / 90 - ((cy / window.innerHeight) * 2 - 1) * visH / 2;
+    var lat = y * 90;
+    if (Math.abs(lat) > 90) return null;
+    return { lon: wrap180(x * 90), lat: lat };
+  }
+
+  // перетаскивание карты
+  cv.addEventListener('pointerdown', function (e) {
+    if (mode !== 'mars' || !flatOn) return;
+    flatPan[e.pointerId] = { x: e.clientX, y: e.clientY };
+    flatFly = null;
+  });
+  cv.addEventListener('pointermove', function (e) {
+    var p = flatPan[e.pointerId];
+    if (!p || mode !== 'mars' || !flatOn) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (Object.keys(flatPan).length !== 1) return;   // щипок — это масштаб
+    var u = 2 * flatS() / window.innerHeight * 90;     // градусов на пиксель
+    fl.lon = wrap180(fl.lon - dx * u);
+    fl.lat += dy * u;
+    flatClampLat();
+    renderDirty = true;
+  });
+  function flatPanEnd(e) { delete flatPan[e.pointerId]; }
+  cv.addEventListener('pointerup', flatPanEnd);
+  cv.addEventListener('pointercancel', flatPanEnd);
+
   // ---- Анимация ----------------------------------------------------------
   var marsAcc = 0;
   var clock = new THREE.Clock();
@@ -3221,10 +3372,12 @@ void main(){
       var busy = renderDirty || mv.dragging || mv.fly || Math.abs(mv.dist - mv.tDist) > 0.002 ||
         Math.abs(mv.vSpin) > 0.01 || Math.abs(mv.vPitch) > 0.01 || transitioning;
       if (!busy && marsAcc < 0.034) return;   // в покое — 30 кадров/с
+      if (flatOn) prepFlat(marsAcc);
       updateMars(marsAcc);
+      if (flatOn) updateFlat();
       marsAcc = 0;
       renderDirty = false;
-      renderer.render(marsScene, marsCam);
+      renderer.render(flatOn ? flatScene : marsScene, marsCam);
       updateLandPin();
       return;
     }
