@@ -1,0 +1,40 @@
+[hidden]:not([hidden="until-found"]) {
+  display: none !important;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: radial-gradient(ellipse at 50% 48%, var(--space-glow) 0%, var(--space-mid) 40%, var(--space-deep) 100%);
+  color: var(--ink);
+  font-family: var(--font-display);
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+}
+
+#stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#fallback {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 18px;
+  color: var(--ink);
+}
+
+
