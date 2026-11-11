@@ -91,7 +91,8 @@ float gnd(vec2 q, float t){
   gCub = 1.0 - smoothstep(25.0, 80.0, t);
   float h = hKmS(q) - gH0;
   vec2 p = q + uSeed;
-  h += 0.030 * fbm2(p * 0.5);                  // пологие холмы
+  h += 0.150 * fbm2(p * 0.3);                  // крупные холмы (до 150 м)
+  h += 0.050 * fbm2(p * 2.0);                  // средние барханы
   h += cra(p, 4.0, 0.30, 0.34, 1.0);           // только огромные кратеры
   return h - dot(q, q) / (2.0 * R_KM);
 }
@@ -180,7 +181,7 @@ void main(){
   float ex1 = 1.0 - smoothstep(-0.25, 0.35, e);
   float expo = 1.0 + 5.5 * ex1 * ex1;
 
-  if(hit){
+if(hit){
     float a = tPrev, b = t;
     for(int k = 0; k < 6; k++){
       float m = 0.5 * (a + b);
@@ -190,62 +191,96 @@ void main(){
     t = 0.5 * (a + b);
     vec3 P = ro + rd * t;
     vec2 q = P.xy;
-    float ee = max(0.002, t * 0.006);   // широкий шаг нормалей: гладкое затенение   // шире шаг для нормалей: сглаженное затенение, как модификатор smooth
+
+    // --- НОРМАЛИ (Рельеф) ---
+    float ee = max(0.0003, t * 0.0020); // чуть больший шаг → мягче нормали
     float h0 = gnd(q, t);
     float hx = gnd(q + vec2(ee, 0.0), t);
     float hy = gnd(q + vec2(0.0, ee), t);
     vec3 N = normalize(vec3(-(hx - h0) / ee, -(hy - h0) / ee, 1.0));
-    // мелкая шероховатость реголита вблизи
-    float nearK = 0.0;   // без мелкой шероховатости: вся детализация — в текстуре цвета
-    if(nearK > 0.0){
-      vec2 pp = (q + uSeed) * 900.0;
-      float bx = n2(pp + vec2(0.7, 0.0)) - n2(pp - vec2(0.7, 0.0));
-      float by = n2(pp + vec2(0.0, 0.7)) - n2(pp - vec2(0.0, 0.7));
-      N = normalize(N + vec3(-bx, -by, 0.0) * 0.55 * nearK);
+
+
+    // --- МИКРО-РЕЛЬЕФ ---
+    float nearK = exp(-t * 0.05); // быстрее затухает
+    vec2 sp2 = q + uSeed;
+    if(nearK > 0.015){
+      // Барханы (ещё мягче)
+      vec2 windDir = normalize(vec2(0.8, 0.2));
+      float phase = dot(q, windDir) * 60.0 + n2(q * 1.5) * 8.0;
+      float rippleSlope = cos(phase) * 0.055 * nearK; // было 0.10
+      N.x -= windDir.x * rippleSlope;
+      N.y -= windDir.y * rippleSlope;
+
+
+      // Гравий (очень слабый)
+      vec2 pp = sp2 * 320.0;
+      float bx = n2(pp + vec2(0.5, 0.0)) - n2(pp - vec2(0.5, 0.0));
+      float by = n2(pp + vec2(0.0, 0.5)) - n2(pp - vec2(0.0, 0.5));
+      N.x -= bx * 0.35 * nearK; // было 0.8
+      N.y -= by * 0.35 * nearK;
+      N = normalize(N);
     }
 
-    // цвет: карта Viking + процедурные вариации
-    vec2 uv = toUV(q);
-    vec3 alb = pow(colAt(uColor, uv), vec3(2.2));
-    float lum = dot(alb, vec3(0.3, 0.59, 0.11));
-    alb = mix(alb, vec3(lum) * vec3(1.30, 0.98, 0.72), 0.45) * 1.1;
-    vec2 sp2 = q + uSeed;
-    float v1 = fbm2(sp2 * 1.6), v2 = fbm2(sp2 * 22.0), v3 = n2(sp2 * 700.0);
-    alb *= 1.0 + 0.55 * v1 + 0.30 * v2 * (1.0 - smoothstep(0.5, 6.0, t));
-    float dark = smoothstep(0.02, 0.2, v1 + 0.22 * fbm2(sp2 * 0.25));
-    alb = mix(alb, alb * vec3(0.62, 0.60, 0.64), (1.0 - dark) * 0.7);
-    float rk = 0.0;   // камней нет
-    float onRock = smoothstep(0.00002, 0.0002, rk) * nearK;
-    alb = mix(alb, vec3(0.085, 0.072, 0.068) * (0.7 + 0.8 * v3), onRock * 0.85);
-    alb *= 1.0 - 0.28 * nearK * (v3 - 0.5);
 
-    // тени рельефа в направлении Солнца
+    // --- ЦВЕТ И ТЕКСТУРА ---
+    float macroNoise = fbm2(sp2 * 0.45);
+    // Более приглушённые, менее контрастные тона
+    vec3 alb = mix(vec3(0.38, 0.23, 0.15), vec3(0.52, 0.31, 0.21), smoothstep(-0.15, 0.18, macroNoise));
+    float patchNoise = fbm2(sp2 * 1.7);
+    alb = mix(alb, vec3(0.28, 0.17, 0.12), smoothstep(0.12, 0.32, patchNoise) * 0.35);
+    // Песок — почти без контраста
+    float sand = n2(sp2 * 260.0);
+    alb *= 0.94 + 0.10 * sand;
+
+
+    // КАМНИ (меньше и светлее)
+    float rock1 = smoothstep(0.78, 0.86, n2(sp2 * 70.0));
+    float rock2 = smoothstep(0.82, 0.90, n2(sp2 * 180.0));
+    float rockMask = max(rock1, rock2) * nearK * 0.7;
+    // Камни почти того же тона, что и песок
+    alb = mix(alb, vec3(0.22, 0.15, 0.12), rockMask * 0.65);
+
+
+    // --- ТЕНИ РЕЛЬЕФА (Трассировка) ---
     float sh = 1.0;
     if(e > 0.0 && dot(N, uSun) > 0.0){
-      float dist = 0.0016;
+      float dist = 0.0020;
       for(int i = 0; i < SHADOW_STEPS; i++){
-        vec3 sp3 = P + uSun * dist + vec3(0.0, 0.0, 0.0003);
-        float g2 = sp3.z - gnd(sp3.xy, t + dist * 3.0);
-        sh = min(sh, clamp(g2 * 22.0 / dist, 0.0, 1.0));
-        dist *= 1.38;
+        vec3 sp3 = P + uSun * dist + vec3(0.0, 0.0, 0.0004);
+        float g2 = sp3.z - gnd(sp3.xy, t + dist * 2.5);
+        sh = min(sh, clamp(g2 * 14.0 / dist, 0.0, 1.0)); // мягче тени
+        dist *= 1.42;
       }
     }
-    float ndl = max(dot(N, uSun), 0.0);
-    float m = 1.0 / (max(e, 0.0) + 0.08);
-    vec3 Tg = exp(-0.5 * m * vec3(0.80, 1.0, 1.25));
-    float sunVis = smoothstep(-0.015, 0.03, e);
-    vec3 Esun = vec3(1.0, 0.93, 0.82) * 3.2 * Tg * sunVis * ndl * sh;
-    float day = pow(smoothstep(-0.22, 0.35, e), 2.5);
-    float tw = smoothstep(-0.36, 0.0, e) * (1.0 - smoothstep(0.0, 0.14, e));
-    vec3 Esky = vec3(0.62, 0.45, 0.34) * 0.75 * day * (0.55 + 0.45 * N.z);
-    Esky += vec3(0.30, 0.16, 0.14) * tw * 0.17 * (0.6 + 0.4 * N.z);
-    Esky += vec3(0.0055, 0.0060, 0.0090);
-    col = alb * (Esun + Esky);
 
-    // дымка запылённой атмосферы
-    vec3 fogDir = normalize(vec3(rd.xy, 0.05));
+
+    // --- ОСВЕЩЕНИЕ ---
+    float ndl = max(dot(N, uSun), 0.0);
+    float m = 1.0 / (max(e, 0.0) + 0.10);
+    vec3 Tg = exp(-0.45 * m * vec3(0.75, 0.95, 1.20));
+    float sunVis = smoothstep(-0.02, 0.04, e);
+    vec3 Esun = vec3(1.0, 0.94, 0.85) * 2.9 * Tg * sunVis * ndl * sh;
+    float day = pow(smoothstep(-0.20, 0.32, e), 2.2);
+    float tw = smoothstep(-0.34, 0.0, e) * (1.0 - smoothstep(0.0, 0.16, e));
+    vec3 Esky = vec3(0.58, 0.43, 0.33) * 0.70 * day * (0.60 + 0.40 * N.z);
+    Esky += vec3(0.28, 0.16, 0.14) * tw * 0.14 * (0.65 + 0.35 * N.z);
+    Esky += vec3(0.006, 0.0065, 0.0095);
+
+
+    // Мягкий Ambient Occlusion
+    float ao = clamp(N.z * 0.9 + 0.35, 0.55, 1.0);
+    ao *= (1.0 - rockMask * 0.18);
+
+
+    // Финальный цвет
+    col = alb * (Esun + Esky) * ao;
+
+
+    // --- ДЫМКА ---
+    vec3 fogDir = normalize(vec3(rd.xy, 0.04));
     vec3 fogC = skyRad(fogDir);
-    float fogA = 1.0 - exp(-(0.040 * min(t, 20.0) + 0.0020 * max(t - 20.0, 0.0)));   // вблизи густо, вдали горы (Олимп) остаются видны
+    float fogA = 1.0 - exp(-(0.032 * min(t, 25.0) + 0.0016 * max(t - 25.0, 0.0)));
+    fogA = max(fogA, smoothstep(180.0, 550.0, t));
     col = mix(col, fogC, fogA);
   } else {
     col = skyRad(rd);
