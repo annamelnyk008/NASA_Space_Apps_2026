@@ -1,0 +1,10 @@
+:root {
+  --space-deep: #030717;
+  --space-mid: #0a1745;
+  --space-glow: #16296c;
+  --ink: #f4f7ff;
+  --tag-edge: rgba(255, 255, 255, 0.55);
+  --tag-fill: rgba(255, 255, 255, 0.09);
+  --font-display: 'Fredoka', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
