@@ -650,6 +650,7 @@
   var marsUI = document.getElementById('mars-ui');
   var marsBack = document.getElementById('mars-back');
   var marsNav = document.getElementById('mars-nav');
+  var poiList = document.getElementById('poi-list');
   var btnLayout = document.getElementById('btn-layout');
   var layoutPop = document.getElementById('layout-pop');
   var btnGrid = document.getElementById('btn-grid');
@@ -1849,6 +1850,8 @@ void main(){
   function clearPressed() {
     var bs = marsNav.querySelectorAll('button');
     for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', 'false');
+    var ps = poiList.querySelectorAll('button');
+    for (var k = 0; k < ps.length; k++) ps[k].setAttribute('aria-pressed', 'false');
   }
   function flyTo(lonDeg, latDeg, dist) {
     var f = faceAngles(lonDeg, latDeg);
@@ -2152,6 +2155,57 @@ void main(){
       b.setAttribute('aria-pressed', 'true');
       flyTo(parseFloat(b.getAttribute('data-lon')), parseFloat(b.getAttribute('data-lat')), parseFloat(b.getAttribute('data-dist')));
     }
+  });
+
+
+  // ---- Левая панель «Markers»: выпадающие разделы, пока только «Places of interest» ----
+  var POI = [
+    { name: 'Olympus Mons', note: 'Largest volcano in the Solar System', lon: -134, lat: 18.6, dist: 1.9 },
+    { name: 'Valles Marineris', note: 'Canyon system ~4,000 km long', lon: -59, lat: -12, dist: 2.6 },
+    { name: 'Hellas Basin', note: 'Deepest impact basin on Mars', lon: 70, lat: -42, dist: 2.7 },
+    { name: 'Tharsis Montes', note: 'Arsia, Pavonis and Ascraeus', lon: -112, lat: 1, dist: 2.2 },
+    { name: 'Elysium Mons', note: 'Volcanic province', lon: 147, lat: 25, dist: 2.0 },
+    { name: 'Gale Crater', note: 'Curiosity rover', lon: 137.4, lat: -5.4, dist: 1.5 },
+    { name: 'Jezero Crater', note: 'Perseverance rover', lon: 77.5, lat: 18.4, dist: 1.5 },
+    { name: 'Utopia Planitia', note: 'Vast northern plain', lon: 118, lat: 47, dist: 2.4 },
+    { name: 'Argyre Basin', note: 'Impact basin in the south', lon: -43, lat: -50, dist: 2.4 },
+    { name: 'North pole', note: 'Polar ice cap', lon: 0, lat: 80, dist: 2.8 }
+  ];
+  POI.forEach(function (p) {
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'poi'; b.setAttribute('aria-pressed', 'false');
+    b.setAttribute('data-lon', p.lon); b.setAttribute('data-lat', p.lat); b.setAttribute('data-dist', p.dist);
+    var dot = document.createElement('i');
+    var tx = document.createElement('span');
+    tx.textContent = p.name;
+    var sm = document.createElement('small');
+    sm.textContent = p.note;
+    tx.appendChild(sm);
+    b.appendChild(dot); b.appendChild(tx);
+    li.appendChild(b);
+    poiList.appendChild(li);
+  });
+  poiList.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b || transitioning) return;
+    clearPressed();
+    b.setAttribute('aria-pressed', 'true');
+    flyTo(parseFloat(b.getAttribute('data-lon')), parseFloat(b.getAttribute('data-lat')), parseFloat(b.getAttribute('data-dist')));
+  });
+  var sideToggle = document.getElementById('side-toggle');
+  var sidePanel = document.getElementById('side-panel');
+  sideToggle.addEventListener('click', function () {
+    var open = sidePanel.hidden;
+    sidePanel.hidden = !open;
+    sideToggle.setAttribute('aria-expanded', String(open));
+  });
+  Array.prototype.forEach.call(sidePanel.querySelectorAll('.side-head'), function (h) {
+    h.addEventListener('click', function () {
+      var open = h.getAttribute('aria-expanded') !== 'true';
+      h.setAttribute('aria-expanded', String(open));
+      document.getElementById(h.getAttribute('aria-controls')).hidden = !open;
+    });
   });
 
   // кнопки зума (удержание = непрерывный зум)
