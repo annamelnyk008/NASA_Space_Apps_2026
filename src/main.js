@@ -1,3 +1,3 @@
-// Точка входа. Пока вся логика в legacy/app.js; по мере миграции сюда переедет
-// инициализация (core/renderer, core/loop, режимы) — см. docs/MIGRATION.md.
+// Точка входа приложения. Legacy runtime пока координирует режимы Mars и Surface;
+// базовый renderer, viewport и систему Солнца вынесли в отдельные модули.
 import './legacy/app.js';

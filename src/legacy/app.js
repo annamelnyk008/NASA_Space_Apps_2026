@@ -1,587 +1,85 @@
-// Бандл из старого app.js. Шейдеры вынесены в ../shaders/*, остальной код не менялся.
+// Legacy runtime: режимы Mars и Surface пока сохраняют общее замыкание. Независимые подсистемы вынесены в core/, solar/, data/, lib/ и shaders/.
 import '../core/three-global.js';
-import noiseGlsl from '../shaders/noise.glsl?raw';
-import marsCommonGlsl from '../shaders/mars-common.glsl?raw';
-import marsVertGlsl from '../shaders/mars.vert?raw';
-import marsFragGlsl from '../shaders/mars.frag?raw';
-import marsAtmoVertGlsl from '../shaders/mars-atmo.vert?raw';
-import marsAtmoFragGlsl from '../shaders/mars-atmo.frag?raw';
-import surfaceVertGlsl from '../shaders/surface.vert?raw';
-import surfaceBodyGlsl from '../shaders/surface-body.glsl?raw';
-import surfaceShowFragGlsl from '../shaders/surface-show.frag?raw';
-import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
+import { D2R, DET_PAD, DET_TOT, DET_WIN, EXAG, FIT_RADIUS, FLAT_D0, FLAT_K, FLAT_S_MIN, FOV, GEO_SIZES, H_HI, H_LO, MAX_GEO, PANO_MIN_FOV, TILT_DEG } from '../config.js';
+import { ELEV_RAMP, K_HI, K_LO, TEMP_RAMP, rampFrom } from '../data/colorRamps.js';
+import { marsSolar, sunFor } from '../data/marsSolar.js';
+import { PH_HEIGHT, buildMosaic, canvasTex } from '../data/mosaic.js';
+import { SPACE_FACTS } from '../data/spaceFacts.js';
+import { TILES, TS, overlay } from '../data/tiles.js';
+import { fmtClock, fmtLonLat, lonText, pad2 } from '../lib/format.js';
+import { angDiff, clamp01, wrap180 } from '../lib/math.js';
+import { clampDist, clampFov, faceAngles } from '../lib/view.js';
+import { MARS_ATMO_FRAG, MARS_ATMO_VERT, MARS_FLAT_VERT, MARS_FRAG, MARS_VERT, SURF_FRAG, SURF_SHOW_FRAG, SURF_VERT } from '../shaders/index.js';
+import { moonGeometry } from '../solar/geometry.js';
+import { createSolarSystem } from '../solar/system.js';
+import { createRenderer } from '../core/renderer.js';
+import { createViewportController } from '../core/viewport.js';
+import { createPlanetTagUpdater } from '../solar/planet-tag.js';
+
+
 (function () {
   'use strict';
 
-  // ---- Настройки сцены ---------------------------------------------------
-  var TILT_DEG = 14;      // на сколько камера приподнята над плоскостью орбит (взгляд вниз)
-  var FOV = 36;
-  var FIT_RADIUS = 78;    // какой радиус системы должен поместиться по ширине экрана
-  var SUN_R = 6.5;
 
   var stage = document.getElementById('stage');
   var tag = document.getElementById('mars-tag');
   var fallback = document.getElementById('fallback');
 
-  var renderer;
-  try {
-    if (!window.THREE) throw new Error('three.js не загрузился');
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  } catch (e) {
-    fallback.hidden = false;
-    tag.hidden = true;
-    return;
-  }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-  renderer.setClearColor(0x000000, 0);
-  stage.appendChild(renderer.domElement);
-
-  var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(FOV, 1, 1, 4000);
-
-  // ---- Шум и процедурные текстуры ---------------------------------------
-  function hash3(x, y, z) {
-    var h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1274126177);
-    h = Math.imul(h ^ (h >>> 13), 1274126177);
-    h ^= h >>> 16;
-    return (h >>> 0) / 4294967296;
-  }
-  function sm(t) { return t * t * (3 - 2 * t); }
-  function vnoise(x, y, z) {
-    var xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
-    var xf = sm(x - xi), yf = sm(y - yi), zf = sm(z - zi);
-    var c000 = hash3(xi, yi, zi), c100 = hash3(xi + 1, yi, zi);
-    var c010 = hash3(xi, yi + 1, zi), c110 = hash3(xi + 1, yi + 1, zi);
-    var c001 = hash3(xi, yi, zi + 1), c101 = hash3(xi + 1, yi, zi + 1);
-    var c011 = hash3(xi, yi + 1, zi + 1), c111 = hash3(xi + 1, yi + 1, zi + 1);
-    var x00 = c000 + (c100 - c000) * xf, x10 = c010 + (c110 - c010) * xf;
-    var x01 = c001 + (c101 - c001) * xf, x11 = c011 + (c111 - c011) * xf;
-    var y0 = x00 + (x10 - x00) * yf, y1 = x01 + (x11 - x01) * yf;
-    return y0 + (y1 - y0) * zf;
-  }
-  function fb(x, y, z, oct) {
-    var a = 0.5, s = 0, f = 1;
-    for (var i = 0; i < oct; i++) { s += a * vnoise(x * f, y * f, z * f); f *= 2; a *= 0.5; }
-    return s / (1 - Math.pow(0.5, oct));
-  }
-  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
-  function sstep(e0, e1, x) { var t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); }
-  function mix(a, b, t) {
-    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-  }
-
-  // Эквидистантная текстура по сфере; fn получает направление точки и возвращает [r,g,b(,a)]
-  function makeTex(w, h, fn, post) {
-    var c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    var ctx = c.getContext('2d');
-    var img = ctx.createImageData(w, h);
-    var d = img.data;
-    for (var y = 0; y < h; y++) {
-      var lat = (0.5 - (y + 0.5) / h) * Math.PI;
-      var cl = Math.cos(lat), sl = Math.sin(lat);
-      for (var x = 0; x < w; x++) {
-        var lon = ((x + 0.5) / w) * Math.PI * 2;
-        var col = fn(cl * Math.cos(lon), sl, cl * Math.sin(lon));
-        var i = (y * w + x) * 4;
-        d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2];
-        d[i + 3] = col.length > 3 ? col[3] : 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    if (post) post(ctx, w, h);
-    return new THREE.CanvasTexture(c);
-  }
-
-  var TW = 512, TH = 256;
-
-  function mercuryTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var n = fb(x * 3, y * 3, z * 3 + 1.3, 5);
-      var c = vnoise(x * 10 + 5, y * 10, z * 10);
-      var k = 0.58 + 0.4 * (n - 0.5);
-      if (c < 0.17) k *= 0.7; else if (c > 0.88) k *= 1.12;
-      return [k * 190, k * 174, k * 158];
-    });
-  }
-  function venusTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var w = fb(x * 2, y * 4, z * 2 + 3, 4);
-      var t = Math.sin(y * 5 + w * 6) * 0.5 + 0.5;
-      var c = mix([214, 172, 98], [242, 216, 152], t);
-      return mix(c, [190, 140, 80], sstep(0.6, 0.85, fb(x * 5, y * 9, z * 5, 3)) * 0.35);
-    });
-  }
-  function earthTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var n = fb(x * 1.7 + 3.1, y * 1.7 + 1.2, z * 1.7 + 7.7, 5);
-      var ice = Math.abs(y) + (fb(x * 4, y * 4, z * 4, 3) - 0.5) * 0.12;
-      if (ice > 0.88) return [238, 244, 250];
-      var sea = 0.54;
-      if (n < sea) return mix([14, 52, 138], [40, 122, 200], sstep(0.32, sea, n));
-      var e = (n - sea) / (1 - sea);
-      var c = mix([62, 148, 68], [128, 150, 74], sstep(0.15, 0.55, e));
-      c = mix(c, [150, 122, 88], sstep(0.55, 0.9, e));
-      var des = 1 - Math.abs(Math.abs(y) - 0.33) / 0.2;
-      if (des > 0) c = mix(c, [200, 174, 106], Math.min(des, 1) * 0.65 * fb(x * 4, y * 4, z * 4, 2));
-      if (e < 0.05) c = mix([218, 204, 148], c, e / 0.05);
-      return c;
-    });
-  }
-  function cloudTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var a = sstep(0.55, 0.74, fb(x * 2.6, y * 3.4, z * 2.6 + 9, 5));
-      return [255, 255, 255, Math.round(a * 235)];
-    });
-  }
-  function marsTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var n = fb(x * 2.4 + 2, y * 2.4, z * 2.4, 5);
-      var c = mix([190, 92, 52], [150, 66, 38], sstep(0.4, 0.7, n));
-      c = mix(c, [214, 130, 82], sstep(0.62, 0.85, fb(x * 5, y * 5, z * 5 + 4, 3)) * 0.5);
-      if (Math.abs(y) + (fb(x * 5, y * 5, z * 5, 3) - 0.5) * 0.1 > 0.94) return [240, 232, 226];
-      return c;
-    });
-  }
-  function jupiterTex() {
-    return makeTex(1024, 512, function (x, y, z) {
-      var w = fb(x * 2.2 + 1, y * 9, z * 2.2, 4);
-      var t = Math.sin(y * 16 + (w - 0.5) * 3.4) * 0.5 + 0.5;
-      var t2 = fb(x * 1.2, y * 22, z * 1.2, 3);
-      var c = mix([158, 100, 64], [214, 160, 108], sstep(0.2, 0.7, t));
-      c = mix(c, [240, 222, 190], sstep(0.65, 0.95, t) * 0.9);
-      return mix(c, [190, 120, 78], sstep(0.55, 0.8, t2) * 0.35);
-    }, function (ctx, w, h) {
-      // Большое красное пятно: на u = 0.25 (лицом к камере при старте), широта -22°
-      var cx = w * 0.25, cy = h * 0.5 + h * (22 / 180);
-      var rx = w * 0.075, ry = h * 0.05;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(rx, ry);
-      var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      g.addColorStop(0, 'rgba(176,58,34,1)');
-      g.addColorStop(0.55, 'rgba(196,84,52,1)');
-      g.addColorStop(0.82, 'rgba(224,150,108,0.95)');
-      g.addColorStop(1, 'rgba(224,150,108,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    });
-  }
-  function saturnTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var w = fb(x * 1.5, y * 6, z * 1.5, 3);
-      var t = Math.sin(y * 20 + (w - 0.5) * 2.4) * 0.5 + 0.5;
-      return mix([206, 172, 108], [240, 218, 160], t);
-    });
-  }
-  function uranusTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var t = Math.sin(y * 9 + fb(x * 2, y * 3, z * 2, 3) * 2) * 0.5 + 0.5;
-      return mix([132, 208, 222], [168, 232, 236], t);
-    });
-  }
-  function neptuneTex() {
-    return makeTex(TW, TH, function (x, y, z) {
-      var w = fb(x * 2, y * 6, z * 2, 4);
-      var t = Math.sin(y * 12 + (w - 0.5) * 3) * 0.5 + 0.5;
-      return mix([40, 76, 214], [70, 118, 238], t);
-    }, function (ctx, w, h) {
-      ctx.save();
-      ctx.translate(w * 0.3, h * 0.6);
-      ctx.scale(w * 0.06, h * 0.04);
-      var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      g.addColorStop(0, 'rgba(16,34,130,0.95)');
-      g.addColorStop(1, 'rgba(16,34,130,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    });
-  }
-  function ringTex() {
-    var w = 512, h = 4;
-    var c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    var ctx = c.getContext('2d');
-    var img = ctx.createImageData(w, h);
-    for (var x = 0; x < w; x++) {
-      var t = x / (w - 1);
-      var a, col;
-      if (t < 0.08) { a = 0; col = [150, 135, 115]; }
-      else if (t < 0.22) { a = 0.3; col = [150, 135, 115]; }
-      else if (t < 0.55) { a = 0.94; col = [228, 207, 170]; }
-      else if (t < 0.61) { a = 0.05; col = [200, 180, 150]; }
-      else if (t < 0.86) { a = 0.78; col = [204, 184, 152]; }
-      else if (t < 0.885) { a = 0.08; col = [200, 180, 150]; }
-      else if (t < 0.97) { a = 0.5; col = [190, 172, 144]; }
-      else { a = 0; col = [190, 172, 144]; }
-      var stripe = 0.82 + 0.18 * Math.sin(t * 190 + Math.sin(t * 41) * 3);
-      var edge = Math.min(sstep(0.0, 0.03, t), 1 - sstep(0.97, 1.0, t));
-      for (var y = 0; y < h; y++) {
-        var i = (y * w + x) * 4;
-        img.data[i] = col[0] * stripe;
-        img.data[i + 1] = col[1] * stripe;
-        img.data[i + 2] = col[2] * stripe;
-        img.data[i + 3] = Math.round(255 * a * stripe * (edge > 0 ? 1 : 0));
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return new THREE.CanvasTexture(c);
-  }
-
-  // ---- Свечение (спрайты) -----------------------------------------------
-  function radialTex(stops) {
-    var c = document.createElement('canvas');
-    c.width = c.height = 256;
-    var g = c.getContext('2d');
-    var gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-    stops.forEach(function (s) { gr.addColorStop(s[0], s[1]); });
-    g.fillStyle = gr;
-    g.fillRect(0, 0, 256, 256);
-    return new THREE.CanvasTexture(c);
-  }
-  function glowSprite(map, diameter) {
-    var s = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
-    }));
-    s.scale.set(diameter, diameter, 1);
-    return s;
-  }
-  var HALO_K = 1.55;
-  function haloSprite(rgb, r) {
-    var f = 1 / HALO_K, peak = 0.38;
-    var map = radialTex([
-      [0, 'rgba(' + rgb + ',' + peak + ')'],
-      [f, 'rgba(' + rgb + ',' + peak + ')'],
-      [f + (1 - f) * 0.28, 'rgba(' + rgb + ',' + (peak * 0.38) + ')'],
-      [1, 'rgba(' + rgb + ',0)']
-    ]);
-    return glowSprite(map, 2 * r * HALO_K);
-  }
-
-  // ---- Освещение ---------------------------------------------------------
-  scene.add(new THREE.AmbientLight(0x8fa4e8, 0.55));
-  var sunLight = new THREE.PointLight(0xfff0cf, 1.7, 0, 0);
-  scene.add(sunLight);
-  var fill = new THREE.DirectionalLight(0xcfdcff, 0.65);
-  scene.add(fill);
-
-  // ---- Солнце ------------------------------------------------------------
-  var NOISE_GLSL = noiseGlsl;
-
-  var sunMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
-    vertexShader: [
-      'varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;',
-      'void main(){',
-      '  vPos = position;',
-      '  vNormal = normalize(normalMatrix * normal);',
-      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-      '  vView = -mv.xyz;',
-      '  gl_Position = projectionMatrix * mv;',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'uniform float uTime;',
-      'varying vec3 vPos; varying vec3 vNormal; varying vec3 vView;',
-      NOISE_GLSL,
-      'void main(){',
-      '  vec3 p = normalize(vPos) * 1.8;',
-      '  float t = uTime;',
-      '  vec3 warp = vec3(',
-      '    snoise(p*1.3 + vec3(0.0, t*0.10, 0.0)),',
-      '    snoise(p*1.3 + vec3(5.2, 1.3, t*0.10)),',
-      '    snoise(p*1.3 + vec3(t*0.10, 9.1, 3.3)));',
-      '  vec3 q = p + warp * 0.45;',
-      '  float n = 0.55 * snoise(q*1.4 + vec3(t*0.12, 0.0, t*0.08));',
-      '  n += 0.30 * snoise(q*2.9 - vec3(0.0, t*0.18, t*0.10));',
-      '  n += 0.18 * snoise(q*6.0 + vec3(t*0.25, t*0.10, 0.0));',
-      '  float h = clamp(n * 0.5 + 0.5, 0.0, 1.0);',
-      '  vec3 deep = vec3(0.78, 0.12, 0.02);',
-      '  vec3 mid  = vec3(1.00, 0.50, 0.06);',
-      '  vec3 hot  = vec3(1.00, 0.86, 0.38);',
-      '  vec3 col = mix(deep, mid, smoothstep(0.25, 0.55, h));',
-      '  col = mix(col, hot, smoothstep(0.55, 0.85, h));',
-      '  float rim = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0), 2.2);',
-      '  col = mix(col, vec3(1.0, 0.45, 0.08), rim * 0.55);',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n')
+  var rendererBundle = createRenderer({
+    THREE: window.THREE,
+    stage: stage,
+    tag: tag,
+    fallback: fallback,
+    fov: FOV
   });
-  var sun = new THREE.Mesh(new THREE.SphereGeometry(SUN_R, 64, 48), sunMat);
-  scene.add(sun);
+  if (!rendererBundle) return;
 
-  var sunGlowA = glowSprite(radialTex([
-    [0, 'rgba(255,170,60,0.85)'],
-    [0.42, 'rgba(255,170,60,0.75)'],
-    [0.55, 'rgba(255,140,40,0.30)'],
-    [0.75, 'rgba(255,110,30,0.08)'],
-    [1, 'rgba(255,100,20,0)']
-  ]), SUN_R * 2 * 2.4);
-  var sunGlowB = glowSprite(radialTex([
-    [0, 'rgba(255,120,50,0.22)'],
-    [0.5, 'rgba(255,100,40,0.08)'],
-    [1, 'rgba(255,90,30,0)']
-  ]), SUN_R * 2 * 4);
-  scene.add(sunGlowB);
-  scene.add(sunGlowA);
+  var renderer = rendererBundle.renderer;
+  var scene = rendererBundle.scene;
+  var camera = rendererBundle.camera;
 
-  // ---- Орбиты ------------------------------------------------------------
-  function orbitLine(R) {
-    var pts = [];
-    for (var i = 0; i < 256; i++) {
-      var a = (i / 256) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R));
-    }
-    return new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0xdce6ff, transparent: true, opacity: 0.3 })
-    );
-  }
 
-  // ---- Планеты -----------------------------------------------------------
-  // x = R·cos(a), z = −R·sin(a): тот же порядок и для астероидов
-  var DEFS = [
-    { name: 'Mercury', r: 1.2, orbit: 11.5, speed: 0.030,  spin: 0.20, a0: -0.5,  tilt: 0.03, glow: '196,190,182', tex: mercuryTex },
-    { name: 'Venus',   r: 2.0, orbit: 16,   speed: 0.022,  spin: 0.10, a0: 0.9,   tilt: 0.05, glow: '255,214,140', tex: venusTex },
-    { name: 'Earth',   r: 2.1, orbit: 21,   speed: 0.017,  spin: 0.45, a0: -2.0,  tilt: 0.41, glow: '120,180,255', tex: earthTex, extra: 'earth' },
-    { name: 'Mars',    r: 1.7, orbit: 25.5, speed: 0.014,  spin: 0.40, a0: -0.75, tilt: 0.44, glow: '255,128,84',  tex: marsTex },
-    { name: 'Jupiter', r: 4.8, orbit: 43,   speed: 0.009,  spin: 0.07, a0: -2.6,  tilt: 0.05, glow: '240,196,148', tex: jupiterTex, rot0: 0.36 },
-    { name: 'Saturn',  r: 3.9, orbit: 54.5, speed: 0.0065, spin: 0.25, a0: -0.35, tilt: 0.47, glow: '244,220,150', tex: saturnTex, extra: 'saturn' },
-    { name: 'Uranus',  r: 2.8, orbit: 65,   speed: 0.0045, spin: 0.22, a0: 2.5,   tilt: 1.2,  glow: '150,230,236', tex: uranusTex },
-    { name: 'Neptune', r: 2.7, orbit: 74,   speed: 0.0035, spin: 0.22, a0: 0.6,   tilt: 0.5,  glow: '110,150,255', tex: neptuneTex }
-  ];
-
-  var planets = DEFS.map(function (def) {
-    var pivot = new THREE.Object3D();
-    pivot.rotation.y = def.a0;
-    scene.add(pivot);
-    var holder = new THREE.Object3D();
-    holder.position.x = def.orbit;
-    pivot.add(holder);
-    var tiltG = new THREE.Object3D();
-    tiltG.rotation.z = def.tilt;
-    holder.add(tiltG);
-
-    var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(def.r, 48, 32),
-      new THREE.MeshLambertMaterial({ map: def.tex() })
-    );
-    mesh.rotation.y = def.rot0 || 0;
-    tiltG.add(mesh);
-    holder.add(haloSprite(def.glow, def.r));
-    scene.add(orbitLine(def.orbit));
-
-    var item = { def: def, pivot: pivot, holder: holder, mesh: mesh, angle: def.a0, clouds: null };
-
-    if (def.extra === 'earth') {
-      var clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(def.r * 1.025, 48, 32),
-        new THREE.MeshLambertMaterial({ map: cloudTex(), transparent: true, depthWrite: false })
-      );
-      tiltG.add(clouds);
-      item.clouds = clouds;
-    }
-    if (def.extra === 'saturn') {
-      var inner = def.r * 1.35, outer = def.r * 2.25;
-      var rg = new THREE.RingGeometry(inner, outer, 128, 1);
-      var pos = rg.attributes.position, uv = rg.attributes.uv, v3 = new THREE.Vector3();
-      for (var i = 0; i < pos.count; i++) {
-        v3.fromBufferAttribute(pos, i);
-        uv.setXY(i, (v3.length() - inner) / (outer - inner), 0.5);
-      }
-      var ring = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({
-        map: ringTex(), transparent: true, side: THREE.DoubleSide, depthWrite: false
-      }));
-      ring.rotation.x = -Math.PI / 2;
-      tiltG.add(ring);
-    }
-    return item;
-  });
-
-  var mars = planets.filter(function (p) { return p.def.name === 'Mars'; })[0];
-
-  // ---- Пояс астероидов ---------------------------------------------------
-  function rng(seed) {
-    return function () {
-      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
-      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  function rockGeometry(seed) {
-    var g = new THREE.IcosahedronGeometry(1, 1);
-    var pos = g.attributes.position, map = {}, rnd = rng(seed);
-    for (var i = 0; i < pos.count; i++) {
-      var x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      var k = x.toFixed(3) + ',' + y.toFixed(3) + ',' + z.toFixed(3);
-      if (map[k] === undefined) map[k] = 0.72 + rnd() * 0.5;
-      var s = map[k];
-      pos.setXYZ(i, x * s, y * s, z * s);
-    }
-    g.computeVertexNormals();
-    return g;
-  }
-
-  var ROCK_VARIANTS = 3, ROCKS_EACH = 220;
-  var rockMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true });
-  var belts = [];
-  var dummy = new THREE.Object3D();
-  var tmpColor = new THREE.Color();
-  for (var vI = 0; vI < ROCK_VARIANTS; vI++) {
-    var im = new THREE.InstancedMesh(rockGeometry(11 + vI * 7), rockMat, ROCKS_EACH);
-    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    im.frustumCulled = false;
-    var data = [];
-    for (var i = 0; i < ROCKS_EACH; i++) {
-      var r = 30 + (Math.random() + Math.random()) * 2.75;
-      var size = 0.16 + Math.pow(Math.random(), 2.2) * 0.5;
-      data.push({
-        r: r,
-        a0: Math.random() * Math.PI * 2,
-        w: (0.075 + Math.random() * 0.05) * Math.pow(33 / r, 1.5),
-        y: (Math.random() + Math.random() - 1) * 1.6,
-        sx: size * (0.8 + Math.random() * 0.5),
-        sy: size * (0.8 + Math.random() * 0.5),
-        sz: size * (0.8 + Math.random() * 0.5),
-        rx: Math.random() * 6.28, ry: Math.random() * 6.28, rz: Math.random() * 6.28,
-        tx: (Math.random() - 0.5) * 1.2, ty: (Math.random() - 0.5) * 1.2
-      });
-      tmpColor.setHSL(0.06 + Math.random() * 0.04, 0.08 + Math.random() * 0.17, 0.38 + Math.random() * 0.22);
-      im.setColorAt(i, tmpColor);
-    }
-    im.instanceColor.needsUpdate = true;
-    scene.add(im);
-    belts.push({ mesh: im, data: data });
-  }
-
-  function updateBelts(t) {
-    for (var b = 0; b < belts.length; b++) {
-      var m = belts[b].mesh, d = belts[b].data;
-      for (var i = 0; i < d.length; i++) {
-        var o = d[i], a = o.a0 + o.w * t;
-        dummy.position.set(Math.cos(a) * o.r, o.y, -Math.sin(a) * o.r);
-        dummy.rotation.set(o.rx + o.tx * t, o.ry + o.ty * t, o.rz);
-        dummy.scale.set(o.sx, o.sy, o.sz);
-        dummy.updateMatrix();
-        m.setMatrixAt(i, dummy.matrix);
-      }
-      m.instanceMatrix.needsUpdate = true;
-    }
-  }
-
-  // ---- Звёзды ------------------------------------------------------------
-  var STARS = 1900;
-  var sPos = new Float32Array(STARS * 3), sSize = new Float32Array(STARS), sPhase = new Float32Array(STARS);
-  var sSpeed = new Float32Array(STARS), sAmp = new Float32Array(STARS), sCol = new Float32Array(STARS * 3);
-  var palette = [[1, 1, 1], [0.8, 0.88, 1], [1, 0.92, 0.8], [1, 0.82, 0.72]];
-  for (var s = 0; s < STARS; s++) {
-    var u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, q = Math.sqrt(1 - u * u);
-    var R = 1100 + Math.random() * 200;
-    sPos[s * 3] = R * q * Math.cos(th);
-    sPos[s * 3 + 1] = R * u;
-    sPos[s * 3 + 2] = R * q * Math.sin(th);
-    sSize[s] = 1.0 + Math.pow(Math.random(), 3) * 2.6;
-    sPhase[s] = Math.random() * Math.PI * 2;
-    sSpeed[s] = 0.5 + Math.random() * 1.6;
-    sAmp[s] = Math.random() < 0.45 ? 0.25 + Math.random() * 0.6 : 0.04;
-    var pc = palette[Math.random() < 0.6 ? (Math.random() < 0.5 ? 0 : 1) : (Math.random() < 0.5 ? 2 : 3)];
-    var br = 0.5 + Math.random() * 0.5;
-    sCol[s * 3] = pc[0] * br; sCol[s * 3 + 1] = pc[1] * br; sCol[s * 3 + 2] = pc[2] * br;
-  }
-  var starGeo = new THREE.BufferGeometry();
-  starGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
-  starGeo.setAttribute('aSize', new THREE.BufferAttribute(sSize, 1));
-  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(sPhase, 1));
-  starGeo.setAttribute('aSpeed', new THREE.BufferAttribute(sSpeed, 1));
-  starGeo.setAttribute('aAmp', new THREE.BufferAttribute(sAmp, 1));
-  starGeo.setAttribute('aColor', new THREE.BufferAttribute(sCol, 3));
-  var starMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uPR: { value: renderer.getPixelRatio() } },
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    vertexShader: [
-      'attribute float aSize; attribute float aPhase; attribute float aSpeed; attribute float aAmp; attribute vec3 aColor;',
-      'uniform float uTime; uniform float uPR;',
-      'varying vec3 vColor; varying float vBright;',
-      'void main(){',
-      '  float tw = sin(uTime * aSpeed + aPhase);',
-      '  float env = smoothstep(0.15, 0.85, 0.5 + 0.5 * sin(uTime * 0.11 * aSpeed + aPhase * 3.0));',
-      '  vBright = 1.0 - aAmp * env * (0.5 - 0.5 * tw);',
-      '  float shift = aAmp * env * 0.5 * sin(uTime * aSpeed * 0.7 + aPhase * 1.7);',
-      '  vColor = aColor * vec3(1.0 + shift, 1.0, 1.0 - shift);',
-      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
-      '  gl_PointSize = aSize * uPR;',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'varying vec3 vColor; varying float vBright;',
-      'void main(){',
-      '  float d = length(gl_PointCoord - 0.5);',
-      '  float a = smoothstep(0.5, 0.1, d);',
-      '  gl_FragColor = vec4(vColor * vBright, a);',
-      '}'
-    ].join('\n')
-  });
-  var stars = new THREE.Points(starGeo, starMat);
-  stars.frustumCulled = false;
-  scene.add(stars);
+  // ---- Система: Солнце, планеты, астероиды и звёзды ----------------------
+  var solarSystem = createSolarSystem({ THREE, scene, renderer });
+  var sun = solarSystem.sun;
+  var sunMat = solarSystem.sunMat;
+  var fill = solarSystem.fill;
+  var planets = solarSystem.planets;
+  var mars = solarSystem.mars;
+  var starGeo = solarSystem.starGeo;
+  var starMat = solarSystem.starMat;
+  var updateBelts = solarSystem.updateBelts;
 
   // ---- Камера и размер ---------------------------------------------------
   var marsCam = null;          // камера подробного Марса (создаётся при первом открытии)
-  var onMarsResize = null;
   var renderDirty = true;
-  function resize() {
-    renderDirty = true;
-    var w = window.innerWidth, h = window.innerHeight;
-    renderer.setSize(w, h, true);
-    camera.aspect = w / h;
-    var halfH = Math.tan(THREE.MathUtils.degToRad(FOV) / 2) * camera.aspect;
-    var dist = FIT_RADIUS / halfH;
-    var tilt = THREE.MathUtils.degToRad(TILT_DEG);
-    camera.position.set(0, Math.sin(tilt) * dist, Math.cos(tilt) * dist);
-    camera.lookAt(0, 0, 0);
-    camera.updateProjectionMatrix();
-    camera.updateMatrixWorld(true);
-    fill.position.copy(camera.position);
-    starMat.uniforms.uPR.value = renderer.getPixelRatio();
-    if (onMarsResize) onMarsResize(w, h);
-  }
-  window.addEventListener('resize', resize);
-  resize();
+  var viewport = createViewportController({
+    THREE: THREE,
+    renderer: renderer,
+    camera: camera,
+    fillLight: fill,
+    starMaterial: starMat,
+    fov: FOV,
+    fitRadius: FIT_RADIUS,
+    tiltDeg: TILT_DEG,
+    onDirty: function () { renderDirty = true; }
+  });
+  var resize = viewport.resize;
 
   // ---- Подпись Discover над Марсом --------------------------------------
-  var vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
-  function placeTag() {
-    var w = window.innerWidth, h = window.innerHeight;
-    mars.holder.getWorldPosition(vA);
-    var marsZ = vA.z;
-    vB.copy(vA).project(camera);
-    var mx = (vB.x * 0.5 + 0.5) * w, my = (-vB.y * 0.5 + 0.5) * h;
-
-    vB.set(vA.x, vA.y + mars.def.r * 1.45 + 0.3, vA.z).project(camera);
-    var tx = (vB.x * 0.5 + 0.5) * w, ty = (-vB.y * 0.5 + 0.5) * h;
-    tag.style.transform = 'translate3d(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px,0) translate(-50%,-100%)';
-
-    // Если Марс прячется за Солнцем, подпись плавно гаснет
-    var cx = w / 2, cy = h / 2;
-    vC.set(SUN_R, 0, 0).project(camera);
-    var sunPx = Math.abs((vC.x * 0.5 + 0.5) * w - cx);
-    var dist = Math.hypot(mx - cx, my - cy);
-    var op = marsZ < 0 ? clamp01((dist - sunPx * 0.85) / (sunPx * 0.35)) : 1;
-    tag.style.opacity = op.toFixed(2);
-    tag.style.pointerEvents = op > 0.5 ? 'auto' : 'none';
-  }
+  var placeTag = createPlanetTagUpdater({
+  THREE: THREE,
+  mars: mars,
+  renderer: renderer,
+  camera: camera,
+  tag: tag
+  });
 
   // ======================================================================
   //  ПОДРОБНЫЙ МАРС: реальные карты, смещение геометрии, LOD, реальное Солнце
   // ======================================================================
   var HEAVY = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   var BASE_PR = renderer.getPixelRatio();
-  var MIN_DIST = 1.06, MAX_DIST = 9;
-  var EXAG = 1.0;                        // реальный масштаб рельефа (без преувеличения)
-  var H_LO = -8.2, H_HI = 21.2;          // диапазон высот MOLA, км
-  var D2R = Math.PI / 180;
 
   var mode = 'system';                   // 'system' | 'mars'
   var transitioning = false;
@@ -601,7 +99,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   var uiTimer = 0;
 
   var veil = document.getElementById('veil');
-  var SPACE_FACTS = ["A day on Mars lasts 24 h 37 min — a sol is only about 39 minutes longer than an Earth day.", "Olympus Mons on Mars is about 22 km high — nearly two and a half times taller than Everest.", "Sunsets on Mars glow blue: fine dust scatters red light away from the Sun and leaves a cool halo around it.", "A teaspoon of neutron-star material would weigh about a billion tonnes.", "Venus spins backwards, and one Venus day is longer than its year.", "There are more stars in the observable universe than grains of sand on all of Earth's beaches.", "Light from the Sun takes about 8 minutes and 20 seconds to reach Earth — and 12 or so minutes to reach Mars.", "Saturn is so light for its size that, on average, it is less dense than water.", "Footprints left on the Moon by Apollo astronauts can last for millions of years — there's no wind to erase them.", "Valles Marineris on Mars is about 4,000 km long — as wide as the whole United States.", "Jupiter's Great Red Spot is a storm wider than Earth that has been raging for at least 150 years.", "In space, two pieces of the same metal can fuse together if they touch — a vacuum-welding effect known as cold welding.", "Mars has the biggest dust storms in the Solar System; some wrap the whole planet for weeks.", "Mars' moon Phobos is slowly spiralling inward and will break apart or crash in roughly 50 million years.", "A year on Mercury is just 88 Earth days, yet one Mercury day lasts about 176.", "Neutron stars can spin hundreds of times per second.", "Mars gravity is only 38% of Earth's: a 70 kg person would feel like 27 kg.", "The Sun makes up about 99.86% of all the mass in our Solar System.", "Mars' thin atmosphere is about 95% carbon dioxide, with a surface pressure under 1% of Earth's.", "The coldest natural place known in the universe is the Boomerang Nebula, at about −272 °C.", "Mars has two tiny moons, Phobos and Deimos, that look like potatoes rather than spheres.", "The Voyager 1 probe, launched in 1977, is still sending data from interstellar space.", "Gale Crater, where the Curiosity rover works, holds a 5 km-high mountain of layered rock called Mount Sharp.", "If you could drive a car to the Sun at highway speed, the trip would take over 150 years.", "Mars rocks look red because of iron oxide — essentially rust.", "Ingenuity, the first aircraft to fly on another planet, made 72 flights on Mars.", "One million Earths could fit inside the Sun.", "Mars' north-polar region has a dune field with ice-capped layers up to 3 km thick."];
   var factEl = document.getElementById('ld-fact');
   function showFact() {
     var last = -1;
@@ -628,31 +125,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   var lodEl = document.getElementById('mars-lod');
   var labelsEl = document.getElementById('mars-labels');
 
-  // ---- Палитра высот (км → цвет); по ней же декодирована карта высот ----
-  var ELEV_RAMP = [
-    [-8.2, [110, 60, 175]], [-7.3, [90, 62, 190]], [-6.3, [62, 66, 200]], [-5.3, [50, 73, 203]],
-    [-4.7, [52, 100, 208]], [-4.1, [50, 150, 215]], [-3.7, [60, 205, 205]], [-3.4, [72, 214, 147]],
-    [-1.4, [100, 214, 100]], [0.9, [123, 213, 80]], [2.2, [200, 215, 85]], [3.2, [232, 205, 95]],
-    [4.0, [235, 178, 97]], [6.0, [230, 161, 126]], [8.5, [204, 147, 133]], [11.0, [217, 173, 163]],
-    [15.0, [230, 201, 195]], [20.0, [232, 228, 226]], [21.2, [245, 245, 245]]
-  ];
-  var K_LO = 140, K_HI = 315;            // шкала температур, К
-  var TEMP_RAMP = [
-    [140, [60, 20, 110]], [165, [45, 50, 190]], [190, [40, 120, 220]], [210, [50, 190, 200]],
-    [228, [90, 205, 120]], [245, [175, 215, 70]], [260, [240, 210, 60]], [275, [245, 150, 45]],
-    [292, [225, 70, 40]], [315, [255, 190, 160]]
-  ];
-  function rampAt(h) { return rampFrom(ELEV_RAMP, h); }
-  function rampFrom(R, h) {
-    for (var i = 1; i < R.length; i++) {
-      if (h <= R[i][0]) {
-        var a = R[i - 1], b = R[i];
-        var t = clamp01((h - a[0]) / (b[0] - a[0]));
-        return [a[1][0] + (b[1][0] - a[1][0]) * t, a[1][1] + (b[1][1] - a[1][1]) * t, a[1][2] + (b[1][2] - a[1][2]) * t];
-      }
-    }
-    return R[R.length - 1][1];
-  }
   function makeRampTexture(tab, lo, hi) {
     tab = tab || ELEV_RAMP; lo = (lo === undefined) ? H_LO : lo; hi = (hi === undefined) ? H_HI : hi;
     var c = document.createElement('canvas');
@@ -695,31 +167,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   }
   buildLegend();
 
-  // ---- Положение Солнца над Марсом (Allison & McEwen, Mars24) -----------
-  function marsSolar(ms) {
-    var jd = ms / 86400000 + 2440587.5;
-    var jdtt = jd + 69.184 / 86400;
-    var dj = jdtt - 2451545.0;
-    var M = (19.3871 + 0.52402073 * dj) % 360;
-    var afms = (270.3871 + 0.524038496 * dj) % 360;
-    var A = [0.0071, 0.0057, 0.0039, 0.0037, 0.0021, 0.0020, 0.0018];
-    var T = [2.2353, 2.7543, 1.1177, 15.7866, 2.1354, 2.4694, 32.8493];
-    var P = [49.409, 168.173, 191.837, 21.736, 15.704, 95.528, 49.095];
-    var pbs = 0;
-    for (var i = 0; i < 7; i++) pbs += A[i] * Math.cos((0.985626 * dj / T[i] + P[i]) * D2R);
-    var Mr = M * D2R;
-    var nuM = (10.691 + 3.0e-7 * dj) * Math.sin(Mr) + 0.623 * Math.sin(2 * Mr) + 0.050 * Math.sin(3 * Mr) +
-      0.005 * Math.sin(4 * Mr) + 0.0005 * Math.sin(5 * Mr) + pbs;
-    var Ls = (afms + nuM) % 360; if (Ls < 0) Ls += 360;
-    var Lsr = Ls * D2R;
-    var eot = 2.861 * Math.sin(2 * Lsr) - 0.071 * Math.sin(4 * Lsr) + 0.002 * Math.sin(6 * Lsr) - nuM;
-    var msd = (jdtt - 2451549.5) / 1.0274912517 + 44796.0 - 0.0009626;
-    var mtc = (24 * msd) % 24; if (mtc < 0) mtc += 24;
-    var lonW = 15 * (mtc - 12) + eot;
-    var lonE = (((-lonW) % 360) + 540) % 360 - 180;
-    var dec = Math.asin(0.42565 * Math.sin(Lsr)) / D2R + 0.25 * Math.sin(Lsr);
-    return { lonE: lonE, lat: dec, Ls: Ls, mtc: mtc };
-  }
   function updateSun() {
     sunInfo = marsSolar(Date.now());
     var la = sunInfo.lat * D2R, lo = sunInfo.lonE * D2R;
@@ -727,265 +174,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   }
   updateSun();
 
-  // ---- Шейдеры ------------------------------------------------------------
-  var MARS_COMMON = NOISE_GLSL + marsCommonGlsl;
-
-  var MARS_VERT = MARS_COMMON + marsVertGlsl;
-
-  var MARS_FRAG = marsFragGlsl;
-
-  var MARS_ATMO_VERT = marsAtmoVertGlsl;
-  var MARS_ATMO_FRAG = marsAtmoFragGlsl;
-
-  function moonGeometry(seed) {
-    var g = new THREE.IcosahedronGeometry(1, 2);
-    var pos = g.attributes.position, map = {}, rnd = rng(seed);
-    for (var i = 0; i < pos.count; i++) {
-      var x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      var k = x.toFixed(3) + ',' + y.toFixed(3) + ',' + z.toFixed(3);
-      if (map[k] === undefined) map[k] = 0.88 + rnd() * 0.22;
-      var s = map[k];
-      pos.setXYZ(i, x * s, y * s, z * s);
-    }
-    g.computeVertexNormals();
-    return g;
-  }
-
-  // ---- Уровни детализации: текстуры и сетка --------------------------------
-  // ============================ ТАЙЛОВАЯ СИСТЕМА ТЕКСТУР ============================
-  // Файлов с текстурами в проекте нет: всё берётся из тайловой пирамиды по URL-шаблону.
-  // Если тайл не найден — на его месте заглушка (однотонный цвет / плоская высота 0 км), ошибок нет.
-  //
-  // Схема тайлов — как в WMTS (GoogleCRS84Quad / equirectangular, lon −180…180, lat 90…−90):
-  //   zoom 0  : 2 тайла по горизонтали × 1 по вертикали   (весь Марс = 2 тайла)
-  //   zoom z  : 2^(z+1) колонок × 2^z рядов;  row 0 — северный ряд, col 0 — западный (−180°)
-  //   каждый тайл — квадрат tileSize × tileSize px
-  //
-  // ЧТО ПОДСТАВИТЬ: два шаблона URL. Допустимые заменители:
-  //   {z} или {TileMatrix}   — номер уровня        {row} или {TileRow} — ряд      {col} или {TileCol} — колонка
-  //   {Style} и {TileMatrixSet} подставляются из полей style / matrixSet (если нужен WMTS Mars Trek).
-  // Примеры:
-  //   свои файлы:  'tiles/color/{z}/{row}/{col}.jpg'
-  //   Mars Trek :  TREK + '/<ИмяСлоя>/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png'
-  //     (для Trek: style='default', matrixSet='default028mm', сверьте с WMTSCapabilities.xml слоя;
-  //      сервер должен отдавать заголовок Access-Control-Allow-Origin, иначе браузер не даст
-  //      использовать картинки как текстуры; а внутри Claude-артефакта внешние картинки блокируются —
-  //      размещайте html на своём хостинге).
-  // Mars Trek не отдаёт заголовок CORS, поэтому браузер блокирует его тайлы при прямой загрузке.
-  // Запустите server.py из папки с этим файлом (python3 server.py) и откройте http://localhost:8000/ — он проксирует /trek/… на trek.nasa.gov и добавляет CORS.
-  var TREK = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? '/trek' : 'https://trek.nasa.gov/tiles/Mars/EQ';
-  var TILES = {
-    // [ТЕКСТУРА: ЦВЕТ] RGB-тайлы (JPG/PNG), например мозаика Viking MDIM 2.1
-    // Mars Trek, мозаика Viking MDIM 2.1 (цветная, 232 м/px). Zoom 0 = 2 тайла: .../default028mm/0/0/0.jpg и .../0/0/1.jpg
-    color:  { url: TREK + '/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg',
-              style: 'default', matrixSet: 'default028mm', zMax: 8 },
-    // [ТЕКСТУРА: ВЫСОТЫ] Локальная пирамида тайлов высот, собранная из Mars_MGS_MOLA_ClrShade_merge_global_463m (папка tiles/height).
-    //   тайлы 1024×1024 px, 16 бит в PNG: R = старший байт, G = младший;  км = (R*256+G)/65535*31 − 9
-    //   zoom 0 = 2×1 тайла (2048×1024 px), zoom 1 = 4×2, 2 = 8×4, 3 = 16×8 (16384×8192 px ≈ 1.3 км/px). Грузятся только видимые тайлы.
-    //   Чтобы вернуться к цветной раскраске Mars Trek, поставьте url из закомментированной строки ниже и decode: 'clrshade', tileSize: 256, zMax: 7, smooth: 2.0.
-    //   url: TREK + '/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg'
-    height: { url: 'tiles/height/{z}/{row}/{col}.png', style: 'default', matrixSet: 'default028mm', decode: 'dem16', tileSize: 1024, zMax: 3, smooth: 0.7 },
-    // Цвет для Layout → Elevation (раскраска высот MOLA ClrShade, Mars Trek)
-    elevColor: { url: TREK + '/Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg', style: 'default', matrixSet: 'default028mm', zMax: 7 },
-    tileSize: 256,    // px одного тайла цвета (Mars Trek default028mm = 256)
-    zMax: 8,          // самый глубокий уровень среди слоёв; у каждого слоя свой zMax (проверьте в WMTSCapabilities.xml)
-    zSurface: 8,      // уровень в режиме «человечек» — максимум из доступного (слой с меньшим zMax растягивается)
-    zPlanetMax: 7,    // максимум для вида планеты с орбиты
-    // Слои для Layout (Mars Trek, PNG-тайлы 256 px). zMax — самый глубокий уровень на сервере (сверьте в WMTSCapabilities.xml)
-    overlays: {
-      rough: { url: TREK + '/mola_roughness/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png',      style: 'default', matrixSet: 'default028mm', zMax: 1 },  // Roughness
-      dust:  { url: TREK + '/TES_Dust/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png',             style: 'default', matrixSet: 'default028mm', zMax: 1 },  // Global Dust
-      plag:  { url: TREK + '/TES_Plagioclase/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png',       style: 'default', matrixSet: 'default028mm', zMax: 1 },  // Plagioclase Abundance
-      glass: { url: TREK + '/TES_Glass_Clay/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png',         style: 'default', matrixSet: 'default028mm', zMax: 1 },  // Sheet Silicates / High-Si Glass
-      tin:   { url: TREK + '/TES_Thermal_Inertia/1.0.0/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png',   style: 'default', matrixSet: 'default028mm', zMax: 1 }   // Thermal Inertia
-    }
-  };
-  var TS = TILES.tileSize;
-  var ovId = 'elev';   // активный слой Layout: 'elev' (раскраска высот MOLA) или ключ из TILES.overlays
-  function cfgOf(kind) { return kind === 'elev' ? (ovId === 'elev' ? TILES.elevColor : TILES.overlays[ovId]) : TILES[kind]; }
-  function tileUrl(kind, z, row, col) {
-    var c = cfgOf(kind);
-    return c.url.replace(/\{(z|TileMatrix)\}/g, z).replace(/\{(row|TileRow)\}/g, row).replace(/\{(col|TileCol)\}/g, col)
-      .replace(/\{Style\}/g, c.style || '').replace(/\{TileMatrixSet\}/g, c.matrixSet || '');
-  }
-  // ---- загрузка картинок тайлов (кэш + CORS) ----
-  var imgCache = {}, imgOrder = [];
-  function loadTileImg(url) {
-    if (imgCache[url]) return imgCache[url];
-    var p = new Promise(function (resolve) {
-      var im = new Image();
-      im.crossOrigin = 'anonymous';
-      im.onload = function () { resolve(im); };
-      im.onerror = function () { resolve(null); };
-      im.src = url;
-    });
-    imgCache[url] = p; imgOrder.push(url);
-    if (imgOrder.length > 160) { delete imgCache[imgOrder.shift()]; }
-    return p;
-  }
-  // Перевод цвета раскраски MOLA в высоту (км) и запись в 16-бит кодировку R/G, которую читает шейдер.
-  var HUE_TAB = [[36, 4.0], [50, 3.2], [70, 2.2], [101, 0.9], [125, -1.4], [151, -3.4], [175, -3.7], [200, -4.1], [220, -4.7], [231, -5.3], [245, -6.3], [258, -7.3], [270, -8.2], [300, -8.2]];
-  var SAT_TAB = [[0.0, 21.2], [0.05, 20.0], [0.15, 15.0], [0.25, 11.0], [0.35, 8.5], [0.45, 6.0], [0.59, 4.0], [0.9, 4.0]];
-  function interpTab(tab, x) {
-    if (x <= tab[0][0]) return tab[0][1];
-    for (var i = 1; i < tab.length; i++) {
-      if (x <= tab[i][0]) { var a = tab[i - 1], b = tab[i]; return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]); }
-    }
-    return tab[tab.length - 1][1];
-  }
-  // тайл → Float32Array высот (км), размер tsz×tsz; null, если браузер не дал прочитать пиксели (нет CORS)
-  //   decode 'clrshade' — цветная раскраска MOLA (оттенок → км);  'dem16' — 16-бит PNG: км = (R*256+G)/65535*31 − 9
-  function decodeHeightTile(im, tsz, mode) {
-    var cv = document.createElement('canvas'); cv.width = tsz; cv.height = tsz;
-    var g = cv.getContext('2d', { willReadFrequently: true });
-    g.drawImage(im, 0, 0, tsz, tsz);
-    var id;
-    try { id = g.getImageData(0, 0, tsz, tsz); } catch (e) { return null; }
-    var d = id.data, n = tsz * tsz, e = new Float32Array(n), i, k;
-    if (mode === 'dem16') {
-      for (i = 0, k = 0; i < n; i++, k += 4) e[i] = (d[k] * 256 + d[k + 1]) / 65535 * 31 - 9;
-      return e;
-    }
-    for (i = 0, k = 0; i < n; i++, k += 4) {
-      var r = d[k] / 255, gg = d[k + 1] / 255, b = d[k + 2] / 255;
-      var mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), df = mx - mn, hue = 0;
-      if (df > 1e-6) {
-        if (mx === r) hue = ((gg - b) / df) % 6; else if (mx === gg) hue = 2 + (b - r) / df; else hue = 4 + (r - gg) / df;
-        hue *= 60; if (hue < 0) hue += 360;
-      }
-      var sat = mx > 1e-6 ? df / mx : 0;
-      e[i] = (hue >= 36 && hue <= 300 && sat >= 0.33) ? interpTab(HUE_TAB, hue) : interpTab(SAT_TAB, sat);
-    }
-    return e;
-  }
-  // собирает прямоугольник [sx0,sx0+sw)×[sy0,sy0+sh) уровня zh слоя высот (тайлы своего размера) в Float32Array
-  function layerField(zh, sx0, sy0, sw, sh) {
-    var cfg = TILES.height, T = cfg.tileSize || TS, out = new Float32Array(sw * sh), ok = 0;
-    var cols = Math.pow(2, zh + 1), rows = Math.pow(2, zh);
-    var c0 = Math.floor(sx0 / T), c1 = Math.floor((sx0 + sw - 1) / T);
-    var r0 = Math.max(0, Math.floor(sy0 / T)), r1 = Math.min(rows - 1, Math.floor((sy0 + sh - 1) / T));
-    var jobs = [];
-    for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) (function (r, c) {
-      var cw = ((c % cols) + cols) % cols;
-      jobs.push(loadTileImg(tileUrl('height', zh, r, cw)).then(function (im) {
-        if (!im) return;
-        var te = decodeHeightTile(im, T, cfg.decode); if (!te) return;
-        ok++;
-        var ox = c * T - sx0, oy = r * T - sy0;
-        for (var y = Math.max(0, -oy); y < Math.min(T, sh - oy); y++) for (var x = Math.max(0, -ox); x < Math.min(T, sw - ox); x++) out[(oy + y) * sw + ox + x] = te[y * T + x];
-      }));
-    })(r, c);
-    return Promise.all(jobs).then(function () { return { e: out, ok: ok }; });
-  }
-  // поле высот (км) прямоугольника [gx0,gx0+w)×[gy0,gy0+h) в сетке уровня z (ширина 2^(z+1)·TS px).
-  // Берётся ближайший по детализации уровень слоя, дальше — билинейное пересэмплирование ПО КМ (не по R/G-кодировке).
-  function heightField(z, gx0, gy0, w, h) {
-    var cfg = TILES.height, T = cfg.tileSize || TS;
-    var Wz = Math.pow(2, z + 1) * TS, zh = 0;
-    while (zh < (cfg.zMax || TILES.zMax) && Math.pow(2, zh + 1) * T < Wz) zh++;
-    var Wh = Math.pow(2, zh + 1) * T, Hh = Wh / 2, g = Wh / Wz;
-    var sx0 = Math.max(0, Math.floor(gx0 * g) - 1), sy0 = Math.max(0, Math.floor(gy0 * g) - 1);
-    var sx1 = Math.min(Wh, Math.ceil((gx0 + w) * g) + 2), sy1 = Math.min(Hh, Math.ceil((gy0 + h) * g) + 2);
-    var sw = Math.max(2, sx1 - sx0), sh = Math.max(2, sy1 - sy0);
-    return layerField(zh, sx0, sy0, sw, sh).then(function (src) {
-      var out = new Float32Array(w * h);
-      for (var y = 0; y < h; y++) {
-        var fy = Math.max(sy0, Math.min(sy0 + sh - 1.001, (gy0 + y + 0.5) * g - 0.5)) - sy0;
-        var y0 = Math.min(sh - 2, Math.floor(fy)), ty = fy - y0;
-        for (var x = 0; x < w; x++) {
-          var fx = Math.max(sx0, Math.min(sx0 + sw - 1.001, (gx0 + x + 0.5) * g - 0.5)) - sx0;
-          var x0 = Math.min(sw - 2, Math.floor(fx)), tx = fx - x0, i0 = y0 * sw + x0;
-          out[y * w + x] = (src.e[i0] * (1 - tx) + src.e[i0 + 1] * tx) * (1 - ty) + (src.e[i0 + sw] * (1 - tx) + src.e[i0 + sw + 1] * tx) * ty;
-        }
-      }
-      return { e: out, ok: src.ok, f: Math.max(1, 1 / g) };
-    });
-  }
-  // гауссово размытие поля (сепарабельное), σ в пикселях
-  function blurField(e, w, h, sigma) {
-    var R = Math.ceil(sigma * 3), ker = new Float32Array(2 * R + 1), sum = 0, i, x, y, k;
-    for (i = -R; i <= R; i++) { ker[i + R] = Math.exp(-i * i / (2 * sigma * sigma)); sum += ker[i + R]; }
-    for (i = 0; i < ker.length; i++) ker[i] /= sum;
-    var t = new Float32Array(e.length), o = new Float32Array(e.length), acc;
-    for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
-      acc = 0; for (k = -R; k <= R; k++) acc += e[y * w + Math.max(0, Math.min(w - 1, x + k))] * ker[k + R];
-      t[y * w + x] = acc;
-    }
-    for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
-      acc = 0; for (k = -R; k <= R; k++) acc += t[Math.max(0, Math.min(h - 1, y + k)) * w + x] * ker[k + R];
-      o[y * w + x] = acc;
-    }
-    return o;
-  }
-  // канвас высот в кодировке R/G, которую читает шейдер
-  function heightMosaic(z, gx0, gy0, w, h) {
-    return heightField(z, gx0, gy0, w, h).then(function (r) {
-      var e = r.e;
-      // шумоподавление: убирает ступеньки раскраски (σ в «родных» пикселях слоя × растяжение)
-      if (r.ok > 0) e = blurField(e, w, h, Math.max(0.6, (TILES.height.smooth !== undefined ? TILES.height.smooth : (TILES.heightSmooth || 2.0)) * r.f));
-      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      var g = cv.getContext('2d'), id = g.createImageData(w, h), d = id.data, n = w * h;
-      for (var i = 0, k = 0; i < n; i++, k += 4) {
-        var v = r.ok > 0 ? Math.round((Math.max(-9, Math.min(22, e[i])) + 9) / 31 * 65535) : 19027;
-        d[k] = v >> 8; d[k + 1] = v & 255; d[k + 2] = 0; d[k + 3] = 255;
-      }
-      g.putImageData(id, 0, 0);
-      cv._ok = r.ok;
-      return cv;
-    });
-  }
-  var PH_COLOR = 'rgb(158,92,62)', PH_HEIGHT = 'rgb(74,83,0)';   // высота 0 км в кодировке (R*256+G)/65535*31−9
-  // Собирает прямоугольник пикселей [gx0, gx0+w) × [gy0, gy0+h) уровня z из тайлов в один canvas.
-  function buildMosaic(kind, z, gx0, gy0, w, h) {
-    if (kind === 'height' && TILES.height.decode) return heightMosaic(z, gx0, gy0, w, h);
-    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-    var g = cv.getContext('2d');
-    // если у слоя нет такого глубокого уровня — берём его максимальный и растягиваем
-    var zl = Math.min(z, cfgOf(kind).zMax || TILES.zMax);
-    if (z > zl) {
-      var f = Math.pow(2, z - zl);
-      var sx0 = Math.floor(gx0 / f), sy0 = Math.floor(gy0 / f);
-      var sw = Math.ceil((gx0 + w) / f) - sx0 + 1, sh = Math.ceil((gy0 + h) / f) - sy0 + 1;
-      g.fillStyle = kind === 'height' ? PH_HEIGHT : PH_COLOR;
-      g.fillRect(0, 0, w, h);
-      return buildMosaic(kind, zl, sx0, sy0, sw, sh).then(function (src) {
-        g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-        g.drawImage(src, 0, 0, sw, sh, sx0 * f - gx0, sy0 * f - gy0, sw * f, sh * f);
-        cv._ok = src._ok;
-        return cv;
-      });
-    }
-    g.fillStyle = kind === 'height' ? PH_HEIGHT : PH_COLOR;
-    g.fillRect(0, 0, w, h);
-    cv._ok = 0;
-    var cols = Math.pow(2, z + 1), rows = Math.pow(2, z);
-    var c0 = Math.floor(gx0 / TS), c1 = Math.floor((gx0 + w - 1) / TS);
-    var r0 = Math.max(0, Math.floor(gy0 / TS)), r1 = Math.min(rows - 1, Math.floor((gy0 + h - 1) / TS));
-    var jobs = [];
-    for (var r = r0; r <= r1; r++) {
-      for (var c = c0; c <= c1; c++) {
-        (function (r, c) {
-          var cw = ((c % cols) + cols) % cols;               // долгота замыкается по кругу
-          jobs.push(loadTileImg(tileUrl(kind, z, r, cw)).then(function (im) {
-            if (!im) return;
-            if (kind === 'elev') cv._ok++;
-            var src = im;
-            g.drawImage(src, 0, 0, src.width, src.height, c * TS - gx0, r * TS - gy0, TS, TS);
-          }));
-        })(r, c);
-      }
-    }
-    return Promise.all(jobs).then(function () { return cv; });
-  }
-  function canvasTex(cv, isHeight, wrapRepeat, aniso) {
-    var t = new THREE.CanvasTexture(cv);
-    t.wrapS = wrapRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-    t.wrapT = THREE.ClampToEdgeWrapping;
-    if (isHeight) { t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; }
-    else { t.anisotropy = aniso; }
-    t.needsUpdate = true;
-    return t;
-  }
 
   // ---- Глобальные карты: уровни z = 0, 1, 2 (2 тайла → 8 → 32), собираются в одну текстуру ----
   // Вся планета = LOD 1 (zoom 1: 2 ряда × 4 колонки = 8 тайлов). Каждое «+» — следующий LOD:
@@ -1011,8 +199,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   var MAX_LEVEL = HEAVY ? 2 : 1;
   var texLv = LEVELS.map(function () { return { state: 0, color: null, height: null, ev: {}, promise: null }; });
   var texCur = -1;
-  var GEO_SIZES = [[160, 80], [480, 240], [1024, 512]];
-  var MAX_GEO = 1;
 
   function requestLevel(i) {
     if (i > MAX_LEVEL) return Promise.resolve(false);
@@ -1031,8 +217,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     return L.promise;
   }
 
-  // ---- Окно детализации: 1024×1024 px глубокого уровня z вокруг точки обзора ----
-  var DET_WIN = 1024, DET_PAD = 64, DET_TOT = DET_WIN + 2 * DET_PAD;   // = DET_N, DET_P, DET_T в шейдере
   var TILE_MAX = HEAVY ? 5 : 2;
   var tiles = {};          // key -> { state, h, c, t, z, ox, oy, cx, cy, promise }
   var tileCur = null, tileWant = null;
@@ -1122,7 +306,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   }
   var ovFixed = {};   // слои без LOD: id → { tex, ok }
   function ensureLevelElev(i) {
-    var L = texLv[i], id = ovId;
+    var L = texLv[i], id = overlay.id;
     if (L.ev[id]) return L.ev[id].p;
     dropOtherOv(L.ev, id);
     var rec = L.ev[id] = { tex: null, ok: false };
@@ -1133,7 +317,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     return rec.p;
   }
   function ensureWinElev(T) {
-    var id = ovId;
+    var id = overlay.id;
     if (T.ev[id]) return T.ev[id].p;
     dropOtherOv(T.ev, id);
     var rec = T.ev[id] = { tex: null, ok: false };
@@ -1145,7 +329,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   }
   function syncElev() {
     if (!marsMat || !(viewMode === 1 || viewMode >= 3)) return;
-    var u = marsMat.uniforms, id = ovId;
+    var u = marsMat.uniforms, id = overlay.id;
     if (id !== 'elev') {
       // Roughness / Dust / Plagioclase / Glass / Thermal inertia: один фиксированный уровень (zoom 1: 2 ряда × 4 колонки = 8 тайлов), без LOD и окна детализации
       var fr = ovFixed[id];
@@ -1159,7 +343,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
           var zf = 1, maxF = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
           fr.p = buildMosaic('elev', zf, 0, 0, Math.pow(2, zf + 1) * TS, Math.pow(2, zf) * TS).then(function (cv) {
             fr.tex = canvasTex(cv, false, true, maxF); fr.ok = cv._ok > 0;
-            if (id === ovId) { syncElev(); renderDirty = true; }
+            if (id === overlay.id) { syncElev(); renderDirty = true; }
           });
         }
       }
@@ -1170,13 +354,13 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     if (i >= 0) {
       var rec = texLv[i].ev[id];
       if (rec && rec.tex) { u.uElev.value = rec.tex; u.uElevOn.value = rec.ok ? 1 : 0; }
-      else { u.uElevOn.value = 0; ensureLevelElev(i).then(function () { if (id === ovId) { syncElev(); renderDirty = true; } }); }
+      else { u.uElevOn.value = 0; ensureLevelElev(i).then(function () { if (id === overlay.id) { syncElev(); renderDirty = true; } }); }
     }
     var T = tileCur;
     if (T && T.z < TILES.zSurface - 1) {
       var wr = T.ev[id];
       if (wr && wr.tex) { u.uDetE.value = wr.tex; u.uDetEOn.value = wr.ok ? 1 : 0; }
-      else { u.uDetEOn.value = 0; ensureWinElev(T).then(function () { if (id === ovId && tileCur === T) { syncElev(); renderDirty = true; } }); }
+      else { u.uDetEOn.value = 0; ensureWinElev(T).then(function () { if (id === overlay.id && tileCur === T) { syncElev(); renderDirty = true; } }); }
     } else { u.uDetEOn.value = 0; }
     renderDirty = true;
   }
@@ -1303,7 +487,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
 
     buildLabels();
 
-    onMarsResize = function (w, h) {
+    viewport.setMarsResizeHandler(function (w, h) {
       marsCam.aspect = w / h;
       marsCam.updateProjectionMatrix();
       var half = THREE.MathUtils.degToRad(marsCam.fov / 2);
@@ -1311,16 +495,11 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
       var ang = Math.min(half, halfH) * 0.8;
       mv.fit = 1 / Math.sin(ang);
       if (!mv.userZoomed && mode === 'mars') mv.tDist = mv.fit;
-    };
+    });
   }
 
   // ---- Подписи сетки -------------------------------------------------------
   var gLabels = [];
-  function lonText(lon) {
-    if (lon === 0) return '0°';
-    if (lon === 180 || lon === -180) return '180°';
-    return Math.abs(lon) + '°' + (lon > 0 ? 'E' : 'W');
-  }
   function buildLabels() {
     var lon, defs = [];
     for (lon = -150; lon <= 180; lon += 30) defs.push({ kind: 'lon', lon: lon, lat: 0, text: lonText(lon) });
@@ -1384,19 +563,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     }
   }
 
-  // ---- Управление видом ----------------------------------------------------
-  function faceAngles(lonDeg, latDeg) {
-    var lon = lonDeg * D2R, lat = latDeg * D2R;
-    var x = Math.cos(lat) * Math.cos(lon), z = -Math.cos(lat) * Math.sin(lon);
-    return { spin: Math.atan2(-x, z), pitch: lat };
-  }
-  function angDiff(a, b) {
-    var d = (a - b) % (Math.PI * 2);
-    if (d > Math.PI) d -= Math.PI * 2;
-    if (d < -Math.PI) d += Math.PI * 2;
-    return d;
-  }
-  function clampDist(d) { return Math.max(MIN_DIST, Math.min(MAX_DIST, d)); }
   function clearPressed() {
     var bs = marsNav.querySelectorAll('button');
     for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', 'false');
@@ -1429,7 +595,7 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   function setViewMode(m) {
     viewMode = m;
     var OV_IDS = ['rough', 'dust', 'plag', 'glass', 'tin'];
-    ovId = m >= 3 ? OV_IDS[m - 3] : 'elev';
+    overlay.id = m >= 3 ? OV_IDS[m - 3] : 'elev';
     if (marsMat) marsMat.uniforms.uMode.value = m >= 3 ? 3 : m;
     legendEl.hidden = (m === 0 || m >= 3);
     if (m > 0 && m < 3) buildLegend(m);
@@ -1445,12 +611,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     btnGrid.setAttribute('aria-pressed', String(on));
     if (marsMat && marsSpin) { marsSpin.getWorldQuaternion(tmpQ); tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert()); updateSector(Math.atan2(-tmpV.z, tmpV.x) / D2R, Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R); renderDirty = true; }
     if (!on) for (var i = 0; i < gLabels.length; i++) gLabels[i].el.style.opacity = '0';
-  }
-  function pad2(n) { return (n < 10 ? '0' : '') + n; }
-  function fmtLonLat(lonE, lat) {
-    var lo = Math.abs(lonE).toFixed(0) + '°' + (lonE >= 0 ? 'E' : 'W');
-    var la = Math.abs(lat).toFixed(0) + '°' + (lat >= 0 ? 'N' : 'S');
-    return lo + ' ' + la;
   }
   function updateTiles() {
     if (mv.dist > (tileCur ? 3.4 : 2.9) || texLv[MAX_LEVEL].state !== 2) { tileUpdate(0, 0, false); tileWant = null; return; }
@@ -1750,15 +910,8 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     else if (e.key === 'g' || e.key === 'G') setGrid(!gridOn);
   });
 
-  // ---- Вид с поверхности: трассировка рельефа, небо Марса, Солнце, звёзды ----
-  var SURF_VERT = surfaceVertGlsl;
-  var SURF_BODY = surfaceBodyGlsl;
-  var SURF_FRAG = '#define H_SMOOTH 1\n#define PREC 1\n' + MARS_COMMON + SURF_BODY;
-  var SURF_SHOW_FRAG = surfaceShowFragGlsl;
-
 
   // ---- Режим «Исследователь»: вид от первого лица на поверхности ----------
-  var MARS_HOUR_MS = 88775244 / 24;
   var surfScene = null, surfCam = null, surfMat = null;
   var surf = {
     lon: 0, lat: 0, yaw: 0, pitch: 0.07, fov: 70, tOff: 0, play: false, tex: -1,
@@ -1920,22 +1073,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     return { lon: Math.atan2(-pz, px) / D2R, lat: Math.asin(Math.max(-1, Math.min(1, py))) / D2R };
   }
 
-  // ---- Солнце в локальных осях (восток, север, зенит) -------------------------
-  // Солнце и звёзды для точки (lon, lat в радианах): направление на Солнце в осях E,N,Up и матрица звёзд
-  function sunFor(lon, lat, tOff) {
-    var ss = marsSolar(Date.now() + tOff);
-    var la = ss.lat * D2R, lo = ss.lonE * D2R;
-    var Lx = Math.cos(la) * Math.cos(lo), Ly = Math.sin(la), Lz = -Math.cos(la) * Math.sin(lo);
-    var sl = Math.sin(lat), cl = Math.cos(lat), so = Math.sin(lon), co = Math.cos(lon);
-    var E = [-so, 0, -co], Nr = [-sl * co, cl, sl * so], Nn = [cl * co, sl, -cl * so];
-    var cs = Math.cos(lo), sn = Math.sin(lo);
-    function rot(v) { return [v[0] * cs - v[2] * sn, v[1], v[2] * cs + v[0] * sn]; }   // небесная система: Солнце на долготе 0
-    return {
-      ss: ss,
-      sE: Lx * E[0] + Ly * E[1] + Lz * E[2], sN: Lx * Nr[0] + Ly * Nr[1] + Lz * Nr[2], sU: Lx * Nn[0] + Ly * Nn[1] + Lz * Nn[2],
-      c0: rot(E), c1: rot(Nr), c2: rot(Nn)
-    };
-  }
   function surfSun() {
     var S = sunFor(surf.lon, surf.lat, surf.tOff);
     surf.ss = S.ss; surf.sE = S.sE; surf.sN = S.sN; surf.sU = S.sU;
@@ -1982,11 +1119,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     });
   }
 
-  function fmtClock(h) {
-    h = ((h % 24) + 24) % 24;
-    var hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
-    return pad2(hh) + ':' + pad2(mm);
-  }
   function surfHud() {
     var ss = surf.ss; if (!ss) return;
     var htx = homeText(); surfHomeEl.hidden = !htx; surfHomeEl.textContent = htx;
@@ -2024,7 +1156,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   }
 
   var sLast = { yaw: 0, pitch: 0, fov: 0, tex: -2 }, sIdle = 0, sStill = 0, sLow = false;
-  var PANO_MIN_FOV = 38;      // при сильном приближении — живая трассировка
   function surfBasePR() { return surf.basePR || (HEAVY ? Math.min(BASE_PR, 0.85) : 0.6); }
   // 0 — ничего не рисовать, 1 — живая трассировка, 2 — показ готовой панорамы
   function updateSurface(dt) {
@@ -2415,7 +1546,6 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
     if (k.length < 2) return 0;
     return Math.hypot(sptr[k[0]].x - sptr[k[1]].x, sptr[k[0]].y - sptr[k[1]].y);
   }
-  function clampFov(f) { return Math.max(18, Math.min(100, f)); }
   cv.addEventListener('pointerdown', function (e) {
     if (mode !== 'surface') return;
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
@@ -2494,13 +1624,10 @@ import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
   //   mv.dist = FLAT_D0 + FLAT_K · s,  где s — половина высоты видимой части карты в единицах «вся карта по высоте = 2».
   var flatOn = false, flatScene = null, flatMat = null, flatFly = null;
   var fl = { lon: 0, lat: 0 };                   // центр карты, градусы
-  var FLAT_D0 = 1.05, FLAT_K = 4.0, FLAT_S_MIN = 0.04;
   var btnView = document.getElementById('btn-view');
   var flatPan = {};
 
-  var MARS_FLAT_VERT = marsFlatVertGlsl;
 
-  function wrap180(a) { a = (a + 180) % 360; if (a < 0) a += 360; return a - 180; }
   function flatFit() { return Math.max(1, 2 / (window.innerWidth / window.innerHeight)); }   // s, при котором видна вся карта
   function flatS() { return Math.max(FLAT_S_MIN, Math.min(flatFit(), (mv.dist - FLAT_D0) / FLAT_K)); }
   function flatClampLat() {
