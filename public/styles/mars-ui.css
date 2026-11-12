@@ -294,3 +294,58 @@
   .mu-tools { width: 100%; justify-content: flex-end; }
   .legend { order: 3; flex-basis: 100%; max-width: none; }
 }
+
+/* Переключатель вида: глобус / плоская карта */
+.view-switch {
+  pointer-events: auto;
+  cursor: pointer;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  font: 500 14px/1.2 var(--font-display);
+  color: var(--ink);
+  background: rgba(8, 16, 48, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+
+.view-switch:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.vs-opt {
+  position: relative;
+  z-index: 1;
+  padding: 5px 10px;
+  text-align: center;
+  opacity: 0.65;
+  transition: opacity 0.2s ease;
+}
+
+.vs-knob {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: rgba(255, 138, 92, 0.38);
+  border: 1px solid rgba(255, 176, 138, 0.85);
+  transition: transform 0.22s ease;
+}
+
+.view-switch[aria-checked="false"] .vs-opt:nth-of-type(2),
+.view-switch[aria-checked="true"] .vs-opt:last-of-type {
+  opacity: 1;
+}
+
+.view-switch[aria-checked="true"] .vs-knob {
+  transform: translateX(100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-knob { transition: none; }
+}

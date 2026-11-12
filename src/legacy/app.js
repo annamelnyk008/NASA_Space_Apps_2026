@@ -1,3 +1,15 @@
+// Бандл из старого app.js. Шейдеры вынесены в ../shaders/*, остальной код не менялся.
+import '../core/three-global.js';
+import noiseGlsl from '../shaders/noise.glsl?raw';
+import marsCommonGlsl from '../shaders/mars-common.glsl?raw';
+import marsVertGlsl from '../shaders/mars.vert?raw';
+import marsFragGlsl from '../shaders/mars.frag?raw';
+import marsAtmoVertGlsl from '../shaders/mars-atmo.vert?raw';
+import marsAtmoFragGlsl from '../shaders/mars-atmo.frag?raw';
+import surfaceVertGlsl from '../shaders/surface.vert?raw';
+import surfaceBodyGlsl from '../shaders/surface-body.glsl?raw';
+import surfaceShowFragGlsl from '../shaders/surface-show.frag?raw';
+import marsFlatVertGlsl from '../shaders/mars-flat.vert?raw';
 (function () {
   'use strict';
 
@@ -255,54 +267,7 @@
   scene.add(fill);
 
   // ---- Солнце ------------------------------------------------------------
-  var NOISE_GLSL = [
-    'vec3 mod289(vec3 x){return x - floor(x * (1.0/289.0)) * 289.0;}',
-    'vec4 mod289(vec4 x){return x - floor(x * (1.0/289.0)) * 289.0;}',
-    'vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}',
-    'vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}',
-    'float snoise(vec3 v){',
-    '  const vec2 C = vec2(1.0/6.0, 1.0/3.0);',
-    '  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);',
-    '  vec3 i = floor(v + dot(v, C.yyy));',
-    '  vec3 x0 = v - i + dot(i, C.xxx);',
-    '  vec3 g = step(x0.yzx, x0.xyz);',
-    '  vec3 l = 1.0 - g;',
-    '  vec3 i1 = min(g.xyz, l.zxy);',
-    '  vec3 i2 = max(g.xyz, l.zxy);',
-    '  vec3 x1 = x0 - i1 + C.xxx;',
-    '  vec3 x2 = x0 - i2 + C.yyy;',
-    '  vec3 x3 = x0 - D.yyy;',
-    '  i = mod289(i);',
-    '  vec4 p = permute(permute(permute(',
-    '            i.z + vec4(0.0, i1.z, i2.z, 1.0))',
-    '          + i.y + vec4(0.0, i1.y, i2.y, 1.0))',
-    '          + i.x + vec4(0.0, i1.x, i2.x, 1.0));',
-    '  float n_ = 0.142857142857;',
-    '  vec3 ns = n_ * D.wyz - D.xzx;',
-    '  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);',
-    '  vec4 x_ = floor(j * ns.z);',
-    '  vec4 y_ = floor(j - 7.0 * x_);',
-    '  vec4 x = x_ * ns.x + ns.yyyy;',
-    '  vec4 y = y_ * ns.x + ns.yyyy;',
-    '  vec4 h = 1.0 - abs(x) - abs(y);',
-    '  vec4 b0 = vec4(x.xy, y.xy);',
-    '  vec4 b1 = vec4(x.zw, y.zw);',
-    '  vec4 s0 = floor(b0)*2.0 + 1.0;',
-    '  vec4 s1 = floor(b1)*2.0 + 1.0;',
-    '  vec4 sh = -step(h, vec4(0.0));',
-    '  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;',
-    '  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;',
-    '  vec3 p0 = vec3(a0.xy, h.x);',
-    '  vec3 p1 = vec3(a0.zw, h.y);',
-    '  vec3 p2 = vec3(a1.xy, h.z);',
-    '  vec3 p3 = vec3(a1.zw, h.w);',
-    '  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));',
-    '  p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;',
-    '  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);',
-    '  m = m * m;',
-    '  return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));',
-    '}'
-  ].join('\n');
+  var NOISE_GLSL = noiseGlsl;
 
   var sunMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
@@ -763,425 +728,14 @@
   updateSun();
 
   // ---- Шейдеры ------------------------------------------------------------
-  var MARS_COMMON = NOISE_GLSL + `
-vec3 hash33(vec3 p3){
-  p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yxz + 33.33);
-  return fract((p3.xxy + p3.yxx) * p3.zyx);
-}
-const float PI = 3.14159265359;
-const float TWO_PI = 6.28318530718;
-const float H_MIN = -9.0;
-const float H_RNG = 31.0;
-const float R_KM = 3389.5;
-uniform sampler2D uHeight;
-uniform vec2 uRes;
-uniform float uExag;
-float dec16(vec4 t){ return (t.r * 255.0 * 256.0 + t.g * 255.0) / 65535.0 * H_RNG + H_MIN; }
-uniform sampler2D uDetH;
-uniform sampler2D uDetC;
-uniform sampler2D uElev;     // тайлы Mars Trek (раскраска высот) для режима Layout → Elevation
-uniform sampler2D uDetE;
-uniform float uElevOn;
-uniform float uDetEOn;
-uniform float uDetHOn;   // 0: высоты окна не используются (высоты — только вшитая карта)
-uniform vec4 uDetRect;   // u0, v0, du, dv внутренней области тайла
-uniform float uDetOn;
-const float DET_N = 1024.0;
-const float DET_P = 64.0;
-const float DET_T = 1152.0;
-// положение в окне тайла: xy = координата текстуры, z = вес (1 внутри, к 0 на 16-пикс. кромке)
-vec3 detCoord(vec2 uv){
-  if(uDetOn < 0.5) return vec3(0.0);
-  vec2 p = (uv - uDetRect.xy) / uDetRect.zw * DET_N;
-  float e = max(max(-p.x, p.x - DET_N), max(-p.y, p.y - DET_N));
-  float w = clamp(1.0 - e / DET_P, 0.0, 1.0);
-  w = w * w * (3.0 - 2.0 * w);
-  return vec3((p + DET_P) / DET_T, w);
-}
-#ifdef H_SMOOTH
-float gCub = 0.0;   // 1 вблизи (бикубика Catmull-Rom), 0 вдали (билинейная)
-vec4 crW(float f){
-  float f2 = f * f, f3 = f2 * f;
-  return vec4(-0.5 * f3 + f2 - 0.5 * f, 1.5 * f3 - 2.5 * f2 + 1.0, -1.5 * f3 + 2.0 * f2 + 0.5 * f, 0.5 * f3 - 0.5 * f2);
-}
-#endif
-float detHIF(vec2 i0, vec2 f){
-  vec2 a0 = clamp(i0 + 0.5, 0.5, DET_T - 0.5) / DET_T;
-  vec2 a1 = clamp(i0 + 1.5, 0.5, DET_T - 0.5) / DET_T;
-  float a = dec16(texture2D(uDetH, vec2(a0.x, a0.y)));
-  float b = dec16(texture2D(uDetH, vec2(a1.x, a0.y)));
-  float c = dec16(texture2D(uDetH, vec2(a0.x, a1.y)));
-  float d = dec16(texture2D(uDetH, vec2(a1.x, a1.y)));
-  float bl = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-#ifdef H_SMOOTH
-  if(gCub > 0.001){
-    vec4 wx = crW(f.x), wy = crW(f.y);
-    float acc = 0.0;
-    for(int j = 0; j < 4; j++){
-      float fy = clamp(i0.y + float(j) - 0.5, 0.5, DET_T - 0.5) / DET_T;
-      float row = 0.0;
-      for(int i = 0; i < 4; i++){
-        float fx = clamp(i0.x + float(i) - 0.5, 0.5, DET_T - 0.5) / DET_T;
-        row += dec16(texture2D(uDetH, vec2(fx, fy))) * wx[i];
-      }
-      acc += row * wy[j];
-    }
-    return mix(bl, acc, gCub);
-  }
-#endif
-  return bl;
-}
-float detH(vec2 tuv){
-  vec2 st = tuv * DET_T - 0.5;
-  vec2 i0 = floor(st);
-  return detHIF(i0, st - i0);
-}
-float hBase(vec2 uv);
-float hKm(vec2 uv){
-  float hb = hBase(uv);
-  vec3 dc = detCoord(uv);
-  if(dc.z <= 0.0 || uDetHOn < 0.5) return hb;
-  return mix(hb, detH(dc.xy), dc.z);
-}
-vec3 elevAt(vec2 uv){
-  vec3 cb = texture2D(uElev, uv).rgb;
-  vec3 dc = detCoord(uv);
-  if(dc.z <= 0.0 || uDetEOn < 0.5) return cb;
-  return mix(cb, texture2D(uDetE, dc.xy).rgb, dc.z);
-}
-vec3 colAt(sampler2D base, vec2 uv){
-  vec3 cb = texture2D(base, uv).rgb;
-  vec3 dc = detCoord(uv);
-  if(dc.z <= 0.0) return cb;
-  return mix(cb, texture2D(uDetC, dc.xy).rgb, dc.z);
-}
-float hBaseIF(vec2 i0, vec2 f){
-  float x0 = (i0.x + 0.5) / uRes.x;
-  float x1 = (i0.x + 1.5) / uRes.x;
-  float y0 = clamp(i0.y + 0.5, 0.5, uRes.y - 0.5) / uRes.y;
-  float y1 = clamp(i0.y + 1.5, 0.5, uRes.y - 0.5) / uRes.y;
-  float a = dec16(texture2D(uHeight, vec2(x0, y0)));
-  float b = dec16(texture2D(uHeight, vec2(x1, y0)));
-  float c = dec16(texture2D(uHeight, vec2(x0, y1)));
-  float d = dec16(texture2D(uHeight, vec2(x1, y1)));
-  float bl = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-#ifdef H_SMOOTH
-  if(gCub > 0.001){
-    vec4 wx = crW(f.x), wy = crW(f.y);
-    float acc = 0.0;
-    for(int j = 0; j < 4; j++){
-      float fy = clamp(i0.y + float(j) - 0.5, 0.5, uRes.y - 0.5) / uRes.y;
-      float row = 0.0;
-      for(int i = 0; i < 4; i++){
-        float fx = (i0.x + float(i) - 0.5) / uRes.x;
-        row += dec16(texture2D(uHeight, vec2(fx, fy))) * wx[i];
-      }
-      acc += row * wy[j];
-    }
-    return mix(bl, acc, gCub);
-  }
-#endif
-  return bl;
-}
-float hBase(vec2 uv){
-  vec2 st = uv * uRes - 0.5;
-  vec2 i0 = floor(st);
-  return hBaseIF(i0, st - i0);
-}
-#ifdef PREC
-uniform vec4 uP0;   // наблюдатель в текселях базовой карты: (целая x, y, дробная x, y)
-uniform vec4 uD0;   // то же для окна детализации (в пикселях окна без кромки)
-uniform vec2 uObsLL;
-// высота в точке q (км от наблюдателя) с точной адресацией: смещение считается отдельно от больших координат
-float hKmS(vec2 q){
-  vec2 uo = vec2(q.x / (R_KM * max(cos(uObsLL.y), 0.05) * 6.28318530718), q.y / (R_KM * 3.14159265359));
-  vec2 sb = uP0.zw + uo * uRes - 0.5;
-  vec2 fb = floor(sb);
-  float hb = hBaseIF(uP0.xy + fb, sb - fb);
-  if(uDetOn < 0.5 || uDetHOn < 0.5) return hb;
-  vec2 pd = uD0.zw + uo / uDetRect.zw * DET_N;
-  vec2 pp = uD0.xy + pd;
-  float e = max(max(-pp.x, pp.x - DET_N), max(-pp.y, pp.y - DET_N));
-  float w = clamp(1.0 - e / DET_P, 0.0, 1.0);
-  if(w <= 0.0) return hb;
-  w = w * w * (3.0 - 2.0 * w);
-  vec2 sd = pd + (DET_P - 0.5);
-  vec2 fd = floor(sd);
-  return mix(hb, detHIF(uD0.xy + fd, sd - fd), w);
-}
-#endif
-`;
+  var MARS_COMMON = NOISE_GLSL + marsCommonGlsl;
 
-  var MARS_VERT = MARS_COMMON + `
-varying vec2 vUv;
-varying vec3 vDir;
-varying vec3 vViewPos;
-varying vec3 vNormalV;
-void main(){
-  vUv = uv;
-  vec3 dir = normalize(position);
-  vDir = dir;
-  float h = hKm(uv);
-  float r = 1.0 + uExag * h / R_KM;
-  vec4 mvp = modelViewMatrix * vec4(dir * r, 1.0);
-  vViewPos = mvp.xyz;
-  vNormalV = normalize(normalMatrix * dir);
-  gl_Position = projectionMatrix * mvp;
-}
-`;
+  var MARS_VERT = MARS_COMMON + marsVertGlsl;
 
-  var MARS_FRAG = `
-uniform sampler2D uColor;
-uniform sampler2D uRamp;
-uniform sampler2D uRampT;
-uniform vec3 uSunLagObj;
-uniform float uFlux;
-uniform vec3 uSunObj;
-uniform float uMode;
-uniform float uGrid;
-uniform vec4 uHome;   // lon0, lon1, lat0, lat1 домашнего сектора
-uniform vec4 uCell;   // lon0, lon1, lat0, lat1 (градусы) подсвеченного сектора
-varying vec2 vUv;
-varying vec3 vDir;
-varying vec3 vViewPos;
-varying vec3 vNormalV;
-` + MARS_COMMON + `
-float sq(float x){ return x * x; }
+  var MARS_FRAG = marsFragGlsl;
 
-vec2 craterLayer(vec3 p, float scale, float density, float fp){
-  float lod = 1.0 - smoothstep(0.10, 0.32, fp * scale);
-  if(lod < 0.01) return vec2(0.0);
-  vec3 q = p * scale;
-  vec3 ip = floor(q);
-  vec3 fq = q - ip;
-  float h = 0.0;
-  for(int z = -1; z <= 1; z++){
-    for(int y = -1; y <= 1; y++){
-      for(int x = -1; x <= 1; x++){
-        vec3 g = vec3(float(x), float(y), float(z));
-        vec3 id = ip + g;
-        vec3 r2 = hash33(id + 17.31);
-        if(r2.x > density) continue;
-        vec3 r1 = hash33(id);
-        vec3 cv = g + r1 - fq;
-        float rad = mix(0.12, 0.46, r2.y * r2.y);
-        float t = length(cv) / rad;
-        if(t > 1.7) continue;
-        float b = (t < 1.0) ? (1.0 - t * t) : 0.0;
-        float bowl = -smoothstep(0.0, 0.7, b);
-        float e = (t - 1.0) * 5.0;
-        float rimv = exp(-e * e) * 0.5;
-        float depth = (rad / scale) * (0.45 + 0.5 * r2.z);
-        h += (bowl * 0.9 + rimv) * depth;
-      }
-    }
-  }
-  return vec2(h * lod, lod);
-}
-
-float gridLine(float x, float spacing, float fw){
-  float d = abs(fract(x / spacing + 0.5) - 0.5) * spacing;
-  float a = 1.0 - smoothstep(0.0, fw * 1.1, d);
-  float fade = 1.0 - smoothstep(0.12 * spacing, 0.35 * spacing, fw);
-  return a * fade;
-}
-
-void main(){
-  float lon = (vUv.x - 0.5) * TWO_PI;
-  float lat = (vUv.y - 0.5) * PI;
-  float sl = sin(lat), cl = cos(lat), so = sin(lon), co = cos(lon);
-  vec3 Nn = vec3(cl * co, sl, -cl * so);
-  vec3 E = vec3(-so, 0.0, -co);
-  vec3 Nr = vec3(-sl * co, cl, sl * so);
-  vec3 L = normalize(uSunObj);
-
-  float h0 = hKm(vUv);
-
-  // texel step grows with pixel footprint, so distant relief does not sparkle
-  float texPerPx = fwidth(vUv.x) * uRes.x;
-  float kMin = 1.7 - 0.8 * detCoord(vUv).z;   // в окне 8K-тайла шаг для нормалей мельче
-  float k = clamp(texPerPx * 0.8, kMin, 12.0);
-  float du = k / uRes.x;
-  float dv = k / uRes.y;
-  float hE = hKm(vUv + vec2(du, 0.0));
-  float hW = hKm(vUv - vec2(du, 0.0));
-  float hN = hKm(vUv + vec2(0.0, dv));
-  float hS = hKm(vUv - vec2(0.0, dv));
-  float arcE = max(cl, 0.04) * TWO_PI / uRes.x * 2.0 * k;
-  float arcN = PI / uRes.y * 2.0 * k;
-  float sE = 0.6 * uExag * (hE - hW) / R_KM / arcE;
-  float sN = 0.6 * uExag * (hN - hS) / R_KM / arcN;
-  vec3 N = normalize(Nn - sE * E - sN * Nr);
-
-  // fine procedural craters appear only when the camera is close
-  float fp = length(fwidth(vDir));
-  vec2 mc = vec2(0.0);   // реальные кратеры уже есть в карте высот: процедурные кольца убраны
-  float rough = snoise(normalize(vDir) * 1400.0) * (1.0 - smoothstep(0.15, 0.4, fp * 1400.0));
-  // дополнительная «апскейл»-детализация при сильном приближении: мелкий рельеф и зерно, привязанные к размеру пикселя
-  float w1 = 1.0 - smoothstep(0.15, 0.4, fp * 3500.0);
-  float w2 = 1.0 - smoothstep(0.15, 0.4, fp * 9000.0);
-  float n1 = 0.0, n2 = 0.0;
-  if(w1 > 0.0) n1 = snoise(normalize(vDir) * 3500.0) * w1;
-  if(w2 > 0.0) n2 = snoise(normalize(vDir) * 9000.0 + 17.0) * w2;
-  float micro = (mc.x * 1.1 + 0.000015 * rough + 0.000008 * n1 + 0.0000035 * n2);
-  vec3 sx = dFdx(vDir);
-  vec3 sy = dFdy(vDir);
-  float dBx = dFdx(micro);
-  float dBy = dFdy(micro);
-  vec3 r1 = cross(sy, N);
-  vec3 r2 = cross(N, sx);
-  float det = dot(sx, r1);
-  vec3 grad = sign(det) * (dBx * r1 + dBy * r2);
-  N = normalize(abs(det) * N - grad);
-
-  // albedo
-  vec3 albedo;
-  if(uMode < 0.5){
-    albedo = colAt(uColor, vUv) * (1.0 + 0.10 * n1 + 0.06 * n2);
-  } else if(uMode < 1.5){
-    float t = clamp((h0 - (-8.2)) / 29.4, 0.0, 1.0);
-    albedo = texture2D(uRamp, vec2(t, 0.5)).rgb;
-    // карта высот Layout → Elevation: тайлы Mars Trek (MOLA ClrShade) с пирамидой LOD, если они загружены
-    if(uElevOn > 0.5) albedo = elevAt(vUv);
-  } else if(uMode > 2.5){
-    // слои Mars Trek (Roughness, Dust, Plagioclase, Glass/Clay, Thermal Inertia)
-    albedo = (uElevOn > 0.5) ? elevAt(vUv) : colAt(uColor, vUv) * 0.7;   // слой не загрузился — показываем обычный цвет
-  } else {
-    // модель температуры поверхности: инсоляция с тепловой задержкой + суточное среднее
-    vec3 cc = pow(colAt(uColor, vUv), vec3(2.2));
-    float A = clamp(0.08 + dot(cc, vec3(0.3, 0.59, 0.11)) * 0.55, 0.08, 0.36);
-    vec3 Ll = normalize(uSunLagObj);
-    float cz = max(dot(Nn, Ll), 0.0);
-    float sinD = Ll.y;
-    float cosD = sqrt(max(1.0 - sinD * sinD, 1e-4));
-    float cH = clamp(-(sl / max(cl, 0.02)) * (sinD / cosD), -1.0, 1.0);
-    float H0 = acos(cH);
-    float Q = max(uFlux / PI * (H0 * sl * sinD + cl * cosD * sin(H0)), 0.0);
-    float kk = (1.0 - A) / (0.98 * 5.67e-8);
-    float Tm = pow(Q * kk, 0.25);
-    float Tn = 0.80 * Tm;
-    float Te = pow(cz * uFlux * kk, 0.25);
-    float T = pow(Tn * Tn * Tn * Tn + 0.93 * Te * Te * Te * Te, 0.25);
-    T = clamp(T, 148.0, 318.0);
-    albedo = texture2D(uRampT, vec2(clamp((T - 140.0) / 175.0, 0.0, 1.0), 0.5)).rgb;
-  }
-  albedo = pow(albedo, vec3(2.2));
-
-  // sun: terminator from the sphere, relief shadows by marching the height map
-  float geo = dot(Nn, L);
-  float ndl = max(dot(N, L), 0.0);
-  float term = smoothstep(-0.06, 0.18, geo);
-  float shadow = 1.0;
-#if SHADOW_STEPS > 0
-  float sunUp = dot(L, Nn);
-  vec2 hz = vec2(dot(L, E), dot(L, Nr));
-  float hl = length(hz);
-  if(sunUp > 0.02 && hl > 1e-4 && fp < 0.006){
-    vec2 sd = hz / hl;
-    float tanEl = sunUp / hl;
-    float base = uExag * h0 / R_KM;
-    float s = 0.0006;
-    for(int i = 0; i < SHADOW_STEPS; i++){
-      vec2 off = vec2(s * sd.x / (max(cl, 0.04) * TWO_PI), s * sd.y / PI);
-      float hr = uExag * hKm(vUv + off) / R_KM - base;
-      float d = hr - 0.5 * s * s - s * tanEl;
-      shadow = min(shadow, 1.0 - smoothstep(0.0, 0.003 + 0.06 * s, d));
-      s *= 1.32;
-    }
-  }
-#endif
-  float amb = (uMode < 0.5) ? 0.012 : 0.05;
-  vec3 sunC = vec3(1.0, 0.93, 0.82) * 2.2;
-  vec3 lit = albedo * (vec3(amb, amb * 1.1, amb * 1.6) + sunC * ndl * term * mix(0.65, 1.0, shadow));
-  if(uMode > 1.5) lit = albedo * (0.62 + 0.38 * ndl) * 1.1;
-
-  // thin atmosphere: faint warm haze on the lit limb, cool tint at sunset
-  vec3 N0 = normalize(vNormalV);
-  vec3 V = normalize(-vViewPos);
-  float fr = pow(1.0 - clamp(dot(N0, V), 0.0, 1.0), 3.0);
-  float dayAmt = clamp(geo + 0.2, 0.0, 1.0);
-  lit += vec3(0.75, 0.40, 0.25) * fr * dayAmt * 0.14;
-  float sunset = exp(-sq((geo - 0.03) * 7.0));
-  lit += vec3(0.10, 0.18, 0.40) * sunset * fr * 0.35;
-
-  lit = vec3(1.0) - exp(-lit * 1.25);
-  lit = pow(lit, vec3(1.0 / 2.2));
-
-  if(uGrid > 0.5){
-    float lonD = (vUv.x - 0.5) * 360.0;
-    float latD = (vUv.y - 0.5) * 180.0;
-    float fwLon = fwidth(lonD);
-    float fwLat = fwidth(latD);
-    float poleF = 1.0 - smoothstep(78.0, 88.0, abs(latD));
-    float g = gridLine(lonD, 30.0, fwLon) * poleF * 0.9;
-    g = max(g, gridLine(latD, 30.0, fwLat) * 0.9);
-    g = max(g, gridLine(lonD, 10.0, fwLon) * poleF * 0.45);
-    g = max(g, gridLine(latD, 10.0, fwLat) * 0.45);
-    g = max(g, gridLine(lonD, 2.0, fwLon) * poleF * 0.25);
-    g = max(g, gridLine(latD, 2.0, fwLat) * 0.25);
-    lit = mix(lit, vec3(0.82, 0.92, 1.0), clamp(g, 0.0, 1.0) * 0.75);
-    // подсветка сектора, на который смотрим
-    if(uCell.y > uCell.x){
-      float inLon = step(uCell.x, lonD) * step(lonD, uCell.y);
-      float inLat = step(uCell.z, latD) * step(latD, uCell.w);
-      float inC = inLon * inLat;
-      float dLon = min(abs(lonD - uCell.x), abs(lonD - uCell.y));
-      float dLat = min(abs(latD - uCell.z), abs(latD - uCell.w));
-      float eLon = (1.0 - smoothstep(0.0, 2.2 * fwLon, dLon)) * step(uCell.z - fwLat, latD) * step(latD, uCell.w + fwLat);
-      float eLat = (1.0 - smoothstep(0.0, 2.2 * fwLat, dLat)) * step(uCell.x - fwLon, lonD) * step(lonD, uCell.y + fwLon);
-      float edge = clamp(eLon + eLat, 0.0, 1.0);
-      lit = mix(lit, vec3(1.0, 0.72, 0.50), inC * 0.13);
-      lit = mix(lit, vec3(1.0, 0.62, 0.36), edge * 0.9);
-    }
-  }
-  if(uHome.y > uHome.x){
-    float lonH = (vUv.x - 0.5) * 360.0;
-    float latH = (vUv.y - 0.5) * 180.0;
-    float fwo = max(fwidth(lonH), 1e-5);
-    float fwa = max(fwidth(latH), 1e-5);
-    float inH = step(uHome.x, lonH) * step(lonH, uHome.y) * step(uHome.z, latH) * step(latH, uHome.w);
-    float dxx = min(abs(lonH - uHome.x), abs(lonH - uHome.y));
-    float dyy = min(abs(latH - uHome.z), abs(latH - uHome.w));
-    float eo = (1.0 - smoothstep(0.0, 2.6 * fwo, dxx)) * step(uHome.z - fwa, latH) * step(latH, uHome.w + fwa);
-    float ea = (1.0 - smoothstep(0.0, 2.6 * fwa, dyy)) * step(uHome.x - fwo, lonH) * step(lonH, uHome.y + fwo);
-    float edgeH = clamp(eo + ea, 0.0, 1.0);
-    float glow = inH * 0.6;
-    float dOut = max(max(uHome.x - lonH, lonH - uHome.y) / fwo, max(uHome.z - latH, latH - uHome.w) / fwa);
-    float halo = (1.0 - inH) * exp(-max(dOut, 0.0) / 5.0) * 0.55;
-    vec3 pink = vec3(1.0, 0.25, 0.82);
-    lit = mix(lit, pink, halo);
-    lit = mix(lit, pink, inH * 0.14 + glow * 0.22);
-    lit = mix(lit, pink, edgeH * 0.95);
-  }
-  gl_FragColor = vec4(lit, 1.0);
-}
-`;
-
-  var MARS_ATMO_VERT = `
-varying vec3 vN;
-varying vec3 vV;
-void main(){
-  vN = normalize(normalMatrix * normal);
-  vec4 mvp = modelViewMatrix * vec4(position, 1.0);
-  vV = normalize(-mvp.xyz);
-  gl_Position = projectionMatrix * mvp;
-}
-`;
-  var MARS_ATMO_FRAG = `
-uniform vec3 uSun;
-varying vec3 vN;
-varying vec3 vV;
-void main(){
-  float f = clamp(-dot(vN, vV) / 0.42, 0.0, 1.0);
-  float inten = pow(f, 3.5);
-  float ndl = dot(normalize(vN), normalize(uSun));
-  float litAmt = smoothstep(-0.3, 0.55, ndl);
-  float sunset = exp(-((ndl - 0.05) * 5.0) * ((ndl - 0.05) * 5.0));
-  vec3 col = mix(vec3(0.95, 0.52, 0.30), vec3(0.40, 0.58, 1.0), sunset * 0.7);
-  gl_FragColor = vec4(col, inten * litAmt * 0.55);
-}
-`;
+  var MARS_ATMO_VERT = marsAtmoVertGlsl;
+  var MARS_ATMO_FRAG = marsAtmoFragGlsl;
 
   function moonGeometry(seed) {
     var g = new THREE.IcosahedronGeometry(1, 2);
@@ -2197,334 +1751,10 @@ void main(){
   });
 
   // ---- Вид с поверхности: трассировка рельефа, небо Марса, Солнце, звёзды ----
-  var SURF_VERT = `
-varying vec2 vP;
-void main(){ vP = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }
-`;
-  var SURF_BODY = `
-uniform sampler2D uColor;
-uniform vec2 uSeed;      // сдвиг процедурных деталей (км)
-uniform vec3 uSun;       // направление на Солнце в локальных осях E,N,Up
-uniform vec2 uView;      // курс (от севера по часовой), наклон
-uniform vec2 uScr;       // tan(половины верт. FOV), aspect
-uniform float uPx;       // радиан на пиксель
-uniform mat3 uStar;      // локальные оси -> небесная система (звёзды)
-varying vec2 vP;
-
-float gH0;
-
-vec3 h32(vec2 p){
-  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yxz + 33.33);
-  return fract((p3.xxy + p3.yzz) * p3.zyx);
-}
-float n2(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  float a = h32(i).x, b = h32(i + vec2(1.0, 0.0)).x, c = h32(i + vec2(0.0, 1.0)).x, d = h32(i + vec2(1.0, 1.0)).x;
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-float fbm2(vec2 p){
-  float s = 0.0, a = 0.5;
-  for(int i = 0; i < 4; i++){ s += a * n2(p); p = p * 2.03 + 17.1; a *= 0.5; }
-  return s - 0.469;
-}
-
-// кратеры: ячейка cell км, вероятность prob, глубина = depthK * радиус
-float cra(vec2 p, float cell, float prob, float depthK, float w){
-  if(w <= 0.002) return 0.0;
-  vec2 g = p / cell, id = floor(g), f = g - id;
-  float h = 0.0;
-  for(int j = -1; j <= 1; j++){
-    for(int i = -1; i <= 1; i++){
-      vec2 o = vec2(float(i), float(j));
-      vec3 r = h32(id + o + 11.7);
-      if(r.x > prob) continue;
-      vec3 r2 = h32(id + o + 53.1);
-      vec2 cen = o + 0.22 + 0.56 * r2.xy;
-      float u = r.x / prob;
-      float rad = mix(0.10, 0.46, u * u);
-      float d = length(f - cen) / rad;
-      if(d > 2.2) continue;
-      float rk = rad * cell;
-      float depth = depthK * rk * (0.6 + 0.4 * r2.z);
-      float bowl = d < 1.0 ? -depth * (1.0 - d * d) : 0.0;
-      float e = (d - 1.0) / 0.30;
-      float rim = 0.20 * depth * exp(-e * e);
-      h += bowl + rim;
-    }
-  }
-  return h * w;
-}
-// камни: ячейка cell км, максимальный радиус maxR км
-float rocks(vec2 p, float cell, float maxR, float w){
-  if(w <= 0.002) return 0.0;
-  vec2 g = p / cell, id = floor(g), f = g - id;
-  float h = 0.0;
-  for(int j = -1; j <= 1; j++){
-    for(int i = -1; i <= 1; i++){
-      vec2 o = vec2(float(i), float(j));
-      vec3 r = h32(id + o + 91.3);
-      if(r.x > 0.5) continue;
-      vec2 cen = o + 0.2 + 0.6 * r.yz;
-      float rr = maxR * (0.25 + 0.75 * r.z * r.z);
-      float dd = length((f - cen) * cell);
-      if(dd < rr){
-        float q = dd / rr;
-        h = max(h, rr * (0.55 + 0.35 * r.y) * sqrt(1.0 - q * q));
-      }
-    }
-  }
-  return h * w;
-}
-
-vec2 toUV(vec2 q){
-  float lat = uObsLL.y + q.y / R_KM;
-  float lon = uObsLL.x + q.x / (R_KM * max(cos(uObsLL.y), 0.05));
-  return vec2(lon / TWO_PI + 0.5, lat / PI + 0.5);
-}
-
-// высота поверхности (км) над касательной плоскостью наблюдателя; t — расстояние от камеры
-float gnd(vec2 q, float t){
-  gCub = 1.0 - smoothstep(25.0, 80.0, t);
-  float h = hKmS(q) - gH0;
-  vec2 p = q + uSeed;
-  h += 0.150 * fbm2(p * 0.3);                  // крупные холмы (до 150 м)
-  h += 0.050 * fbm2(p * 2.0);                  // средние барханы
-  h += cra(p, 4.0, 0.30, 0.34, 1.0);           // только огромные кратеры
-  return h - dot(q, q) / (2.0 * R_KM);
-}
-
-vec3 skyRad(vec3 rd){
-  float e = uSun.z;
-  float cg = clamp(dot(rd, uSun), -1.0, 1.0);
-  float ang = acos(cg);
-  float h = max(rd.z, 0.0);
-  float day = pow(smoothstep(-0.22, 0.35, e), 2.5);
-  vec3 zen = vec3(0.30, 0.20, 0.14);
-  vec3 hor = vec3(0.74, 0.50, 0.34);
-  vec3 col = mix(hor, zen, pow(h, 0.5)) * day * 0.62;
-  float lowSun = 1.0 - smoothstep(0.0, 0.5, e);
-  float vis = smoothstep(-0.30, -0.02, e);
-  vec3 blue = vec3(0.20, 0.42, 1.0);
-  col += blue * (0.55 * exp(-ang * 5.0) + 1.5 * exp(-ang * 26.0)) * vis * mix(0.35, 1.0, lowSun);
-  float tw = smoothstep(-0.36, 0.0, e) * (1.0 - smoothstep(0.0, 0.14, e));
-  vec2 az = normalize(rd.xy + 1e-4), saz = normalize(uSun.xy + 1e-4);
-  float side = 0.5 + 0.5 * dot(az, saz);
-  float hz = exp(-h * 6.5);
-  col += (vec3(0.55, 0.27, 0.15) * 0.55 + vec3(0.08, 0.16, 0.50) * 0.85) * tw * hz * side * 0.9;
-  return col;
-}
-
-vec3 starField(vec3 dw){
-  float nightF = smoothstep(-0.14, -0.38, uSun.z);
-  if(nightF <= 0.0) return vec3(0.0);
-  vec3 col = vec3(0.0);
-  float S = clamp(1.0 / (8.0 * uPx), 30.0, 200.0);
-  vec3 p = dw * S;
-  vec3 id = floor(p);
-  float sg = 0.7 * uPx * S;
-  vec3 r = h32(id.xy + id.z * 7.7);
-  float prob = min(0.035 * (120.0 / S) * (120.0 / S), 0.6);
-  if(r.x < prob){
-    vec3 r2 = h32(id.yz + id.x * 3.3 + 1.7);
-    vec3 pos = id + 0.5 + 0.5 * (r2 - 0.5);
-    float d = length(p - pos);
-    float b = pow(r.y, 5.0) * 2.2 + 0.14;
-    float st = exp(-d * d / (2.0 * sg * sg)) * (0.35 / max(sg * 4.0, 0.35));
-    vec3 tint = mix(vec3(1.0, 0.74, 0.55), vec3(0.65, 0.78, 1.0), r.z);
-    col += tint * b * st;
-  }
-  // Млечный Путь
-  vec3 nmw = normalize(vec3(0.35, 0.80, 0.49));
-  float band = exp(-pow(dot(dw, nmw) / 0.20, 2.0));
-  float cl = 0.5 + fbm2(dw.xy * 5.0 + dw.z * 3.0) * 1.8;
-  col += vec3(0.50, 0.55, 0.75) * band * clamp(cl, 0.0, 1.5) * 0.35 / 0.20 * 0.20;
-  return col * nightF * 0.20 * vec3(1.0);
-}
-
-void main(){
-  gCub = 1.0;
-  gH0 = hKmS(vec2(0.0));
-  float eyeZ = gnd(vec2(0.0), 0.0) + 0.0017;
-
-#ifdef PANO
-  float paz = (vP.x * 0.5 + 0.5) * TWO_PI, pel = vP.y * 1.5707963;
-  vec3 rd = vec3(sin(paz) * cos(pel), cos(paz) * cos(pel), sin(pel));
-#else
-  float cy = cos(uView.x), sy = sin(uView.x), cp = cos(uView.y), sp = sin(uView.y);
-  vec3 fw = vec3(sy * cp, cy * cp, sp);
-  vec3 rt = vec3(cy, -sy, 0.0);
-  vec3 up = vec3(-sy * sp, -cy * sp, cp);
-  vec3 rd = normalize(fw + vP.x * uScr.y * uScr.x * rt + vP.y * uScr.x * up);
-#endif
-  vec3 ro = vec3(0.0, 0.0, eyeZ);
-
-  float e = uSun.z;
-  float tMax = 700.0;
-  float t = 0.0004, tPrev = 0.0;
-  bool hit = false;
-  if(rd.z > 0.0) tMax = min(tMax, (40.0 - eyeZ) / rd.z);
-  for(int i = 0; i < STEPS; i++){
-    vec3 p = ro + rd * t;
-    float g = p.z - gnd(p.xy, t);
-    if(g < 0.0){ hit = true; break; }
-    tPrev = t;
-    t += max(0.6 * g, (0.045 + 0.14 * smoothstep(0.1, 4.0, t)) * t + 0.0004);   // вдали шаг растёт быстрее, чтобы луч дошёл до далёких гор (Олимп)
-    if(t > tMax) break;
-  }
-  // луч, идущий к горизонту, не успел дойти до поверхности за отведённые шаги: считаем, что поверхность там (иначе вместо рельефа рисуется плоская «плоскость» дымки)
-  if(!hit && rd.z < 0.025){ hit = true; t = min(t, tMax); tPrev = t; }
-  vec3 col;
-  float ex1 = 1.0 - smoothstep(-0.25, 0.35, e);
-  float expo = 1.0 + 5.5 * ex1 * ex1;
-
-if(hit){
-    float a = tPrev, b = t;
-    for(int k = 0; k < 6; k++){
-      float m = 0.5 * (a + b);
-      vec3 pm = ro + rd * m;
-      if(pm.z - gnd(pm.xy, m) < 0.0) b = m; else a = m;
-    }
-    t = 0.5 * (a + b);
-    vec3 P = ro + rd * t;
-    vec2 q = P.xy;
-
-    // --- НОРМАЛИ (Рельеф) ---
-    float ee = max(0.0003, t * 0.0020); // чуть больший шаг → мягче нормали
-    float h0 = gnd(q, t);
-    float hx = gnd(q + vec2(ee, 0.0), t);
-    float hy = gnd(q + vec2(0.0, ee), t);
-    vec3 N = normalize(vec3(-(hx - h0) / ee, -(hy - h0) / ee, 1.0));
-
-
-    // --- МИКРО-РЕЛЬЕФ ---
-    float nearK = exp(-t * 0.05); // быстрее затухает
-    vec2 sp2 = q + uSeed;
-    if(nearK > 0.015){
-      // Барханы (ещё мягче)
-      vec2 windDir = normalize(vec2(0.8, 0.2));
-      float phase = dot(q, windDir) * 60.0 + n2(q * 1.5) * 8.0;
-      float rippleSlope = cos(phase) * 0.055 * nearK; // было 0.10
-      N.x -= windDir.x * rippleSlope;
-      N.y -= windDir.y * rippleSlope;
-
-
-      // Гравий (очень слабый)
-      vec2 pp = sp2 * 320.0;
-      float bx = n2(pp + vec2(0.5, 0.0)) - n2(pp - vec2(0.5, 0.0));
-      float by = n2(pp + vec2(0.0, 0.5)) - n2(pp - vec2(0.0, 0.5));
-      N.x -= bx * 0.35 * nearK; // было 0.8
-      N.y -= by * 0.35 * nearK;
-      N = normalize(N);
-    }
-
-
-    // --- ЦВЕТ И ТЕКСТУРА ---
-    float macroNoise = fbm2(sp2 * 0.45);
-    // Более приглушённые, менее контрастные тона
-    vec3 alb = mix(vec3(0.38, 0.23, 0.15), vec3(0.52, 0.31, 0.21), smoothstep(-0.15, 0.18, macroNoise));
-    float patchNoise = fbm2(sp2 * 1.7);
-    alb = mix(alb, vec3(0.28, 0.17, 0.12), smoothstep(0.12, 0.32, patchNoise) * 0.35);
-    // Песок — почти без контраста
-    float sand = n2(sp2 * 260.0);
-    alb *= 0.94 + 0.10 * sand;
-
-
-    // КАМНИ (меньше и светлее)
-    float rock1 = smoothstep(0.78, 0.86, n2(sp2 * 70.0));
-    float rock2 = smoothstep(0.82, 0.90, n2(sp2 * 180.0));
-    float rockMask = max(rock1, rock2) * nearK * 0.7;
-    // Камни почти того же тона, что и песок
-    alb = mix(alb, vec3(0.22, 0.15, 0.12), rockMask * 0.65);
-
-
-    // --- ТЕНИ РЕЛЬЕФА (Трассировка) ---
-    float sh = 1.0;
-    if(e > 0.0 && dot(N, uSun) > 0.0){
-      float dist = 0.0020;
-      for(int i = 0; i < SHADOW_STEPS; i++){
-        vec3 sp3 = P + uSun * dist + vec3(0.0, 0.0, 0.0004);
-        float g2 = sp3.z - gnd(sp3.xy, t + dist * 2.5);
-        sh = min(sh, clamp(g2 * 14.0 / dist, 0.0, 1.0)); // мягче тени
-        dist *= 1.42;
-      }
-    }
-
-
-    // --- ОСВЕЩЕНИЕ ---
-    float ndl = max(dot(N, uSun), 0.0);
-    float m = 1.0 / (max(e, 0.0) + 0.10);
-    vec3 Tg = exp(-0.45 * m * vec3(0.75, 0.95, 1.20));
-    float sunVis = smoothstep(-0.02, 0.04, e);
-    vec3 Esun = vec3(1.0, 0.94, 0.85) * 2.9 * Tg * sunVis * ndl * sh;
-    float day = pow(smoothstep(-0.20, 0.32, e), 2.2);
-    float tw = smoothstep(-0.34, 0.0, e) * (1.0 - smoothstep(0.0, 0.16, e));
-    vec3 Esky = vec3(0.58, 0.43, 0.33) * 0.70 * day * (0.60 + 0.40 * N.z);
-    Esky += vec3(0.28, 0.16, 0.14) * tw * 0.14 * (0.65 + 0.35 * N.z);
-    Esky += vec3(0.006, 0.0065, 0.0095);
-
-
-    // Мягкий Ambient Occlusion
-    float ao = clamp(N.z * 0.9 + 0.35, 0.55, 1.0);
-    ao *= (1.0 - rockMask * 0.18);
-
-
-    // Финальный цвет
-    col = alb * (Esun + Esky) * ao;
-
-
-    // --- ДЫМКА ---
-    vec3 fogDir = normalize(vec3(rd.xy, 0.04));
-    vec3 fogC = skyRad(fogDir);
-    float fogA = 1.0 - exp(-(0.032 * min(t, 25.0) + 0.0016 * max(t - 25.0, 0.0)));
-    fogA = max(fogA, smoothstep(180.0, 550.0, t));
-    col = mix(col, fogC, fogA);
-  } else {
-    col = skyRad(rd);
-    if(rd.z < 0.0){
-      col = skyRad(normalize(vec3(rd.xy, 0.05)));
-    } else {
-      float cg = dot(rd, uSun);
-      float R = 0.00305;
-      float ang = acos(clamp(cg, -1.0, 1.0));
-      float m = 1.0 / (max(e, 0.0) + 0.08);
-      vec3 sunC = mix(vec3(1.0, 0.96, 0.88), vec3(0.82, 0.90, 1.0), 1.0 - smoothstep(0.0, 0.5, e));
-      float disc = 1.0 - smoothstep(R * 0.92, R * 1.04, ang);
-      float limb = 0.55 + 0.45 * sqrt(max(1.0 - pow(ang / R, 2.0), 0.0));
-      col += sunC * disc * limb * 45.0 * exp(-0.13 * m);
-      col += sunC * 0.4 * exp(-ang * ang / (0.012 * 0.012)) * exp(-0.13 * m);
-    }
-    if(rd.z >= 0.0){
-      vec3 dw = uStar * rd;
-      col += starField(dw);
-    }
-  }
-  col *= expo;
-  col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
-  col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
-  col += (h32(gl_FragCoord.xy).x - 0.5) / 255.0;
-  gl_FragColor = vec4(col, 1.0);
-}
-`;
+  var SURF_VERT = surfaceVertGlsl;
+  var SURF_BODY = surfaceBodyGlsl;
   var SURF_FRAG = '#define H_SMOOTH 1\n#define PREC 1\n' + MARS_COMMON + SURF_BODY;
-  var SURF_SHOW_FRAG = `
-uniform sampler2D uPano;
-uniform vec2 uView;
-uniform vec2 uScr;
-varying vec2 vP;
-void main(){
-  float cy = cos(uView.x), sy = sin(uView.x), cp = cos(uView.y), sp = sin(uView.y);
-  vec3 fw = vec3(sy * cp, cy * cp, sp);
-  vec3 rt = vec3(cy, -sy, 0.0);
-  vec3 up = vec3(-sy * sp, -cy * sp, cp);
-  vec3 rd = normalize(fw + vP.x * uScr.y * uScr.x * rt + vP.y * uScr.x * up);
-  float az = atan(rd.x, rd.y);
-  if(az < 0.0) az += 6.28318530718;
-  float el = asin(clamp(rd.z, -1.0, 1.0));
-  gl_FragColor = texture2D(uPano, vec2(az / 6.28318530718, el / 3.14159265359 + 0.5));
-}
-`;
+  var SURF_SHOW_FRAG = surfaceShowFragGlsl;
 
 
   // ---- Режим «Исследователь»: вид от первого лица на поверхности ----------
@@ -2563,7 +1793,8 @@ void main(){
         uDetH: { value: marsMat.uniforms.uDetH.value },
         uDetC: { value: marsMat.uniforms.uDetC.value },
         uDetRect: { value: marsMat.uniforms.uDetRect.value.clone() },
-        uDetOn: { value: marsMat.uniforms.uDetOn.value },
+        uDetOn: { value: 0 },
+        uDetHOn: { value: 0 },
         uRes: { value: new THREE.Vector2(2048, 1024) },
         uExag: { value: 1 },
         uObsLL: { value: new THREE.Vector2(0, 0) },
@@ -2673,6 +1904,7 @@ void main(){
   var invM = new THREE.Matrix4(), pkO = new THREE.Vector3(), pkD = new THREE.Vector3();
   function pickMars(cx, cy) {
     if (!marsCam || mode !== 'mars') return null;
+    if (flatOn) return pickFlat(cx, cy);
     marsRoot.updateMatrixWorld(true);
     marsCam.updateMatrixWorld(true);
     ndc.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
@@ -2689,45 +1921,64 @@ void main(){
   }
 
   // ---- Солнце в локальных осях (восток, север, зенит) -------------------------
-  function surfSun() {
-    var ss = marsSolar(Date.now() + surf.tOff);
-    surf.ss = ss;
+  // Солнце и звёзды для точки (lon, lat в радианах): направление на Солнце в осях E,N,Up и матрица звёзд
+  function sunFor(lon, lat, tOff) {
+    var ss = marsSolar(Date.now() + tOff);
     var la = ss.lat * D2R, lo = ss.lonE * D2R;
     var Lx = Math.cos(la) * Math.cos(lo), Ly = Math.sin(la), Lz = -Math.cos(la) * Math.sin(lo);
-    var sl = Math.sin(surf.lat), cl = Math.cos(surf.lat), so = Math.sin(surf.lon), co = Math.cos(surf.lon);
+    var sl = Math.sin(lat), cl = Math.cos(lat), so = Math.sin(lon), co = Math.cos(lon);
     var E = [-so, 0, -co], Nr = [-sl * co, cl, sl * so], Nn = [cl * co, sl, -cl * so];
-    surf.sE = Lx * E[0] + Ly * E[1] + Lz * E[2];
-    surf.sN = Lx * Nr[0] + Ly * Nr[1] + Lz * Nr[2];
-    surf.sU = Lx * Nn[0] + Ly * Nn[1] + Lz * Nn[2];
-    // небесная система: Солнце на долготе 0 (звёзды неподвижны, планета вращается)
     var cs = Math.cos(lo), sn = Math.sin(lo);
-    function rot(v) { return [v[0] * cs - v[2] * sn, v[1], v[2] * cs + v[0] * sn]; }
-    var c0 = rot(E), c1 = rot(Nr), c2 = rot(Nn);
-    var mu = marsMat.uniforms;
+    function rot(v) { return [v[0] * cs - v[2] * sn, v[1], v[2] * cs + v[0] * sn]; }   // небесная система: Солнце на долготе 0
+    return {
+      ss: ss,
+      sE: Lx * E[0] + Ly * E[1] + Lz * E[2], sN: Lx * Nr[0] + Ly * Nr[1] + Lz * Nr[2], sU: Lx * Nn[0] + Ly * Nn[1] + Lz * Nn[2],
+      c0: rot(E), c1: rot(Nr), c2: rot(Nn)
+    };
+  }
+  function surfSun() {
+    var S = sunFor(surf.lon, surf.lat, surf.tOff);
+    surf.ss = S.ss; surf.sE = S.sE; surf.sN = S.sN; surf.sU = S.sU;
+    var c0 = S.c0, c1 = S.c1, c2 = S.c2;
     var u0 = surf.lon / (2 * Math.PI) + 0.5, v0 = surf.lat / Math.PI + 0.5;
     eachSM(function (m) {
       m.uniforms.uStar.value.set(c0[0], c1[0], c2[0], c0[1], c1[1], c2[1], c0[2], c1[2], c2[2]);
       m.uniforms.uSun.value.set(surf.sE, surf.sN, surf.sU);
       // точное (double) положение наблюдателя в текселях: целая и дробная части отдельно (float32 в шейдере даёт ступени ~1 м)
-      m.uniforms.uDetRect.value.copy(mu.uDetRect.value);
-      m.uniforms.uDetOn.value = mu.uDetOn.value;
-      var rs = m.uniforms.uRes.value, dr = m.uniforms.uDetRect.value;
+      var rs = m.uniforms.uRes.value;
       var bx = u0 * rs.x, by = v0 * rs.y;
       m.uniforms.uP0.value.set(Math.floor(bx), Math.floor(by), bx - Math.floor(bx), by - Math.floor(by));
-      var dx = (u0 - dr.x) / dr.z * 1024, dy = (v0 - dr.y) / dr.w * 1024;
-      m.uniforms.uD0.value.set(Math.floor(dx), Math.floor(dy), dx - Math.floor(dx), dy - Math.floor(dy));
     });
   }
 
+  // Высоты: сглаженная копия карты модели (1024×512, ≈20 км/px) — почти голый шарик без артефактов; цвет — мозаика NASA из общего вида.
+  var surfHeight = null, surfHeightP = null;
+  function loadSurfHeight() {
+    if (!surfHeightP) surfHeightP = new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        var t = new THREE.Texture(im);
+        t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+        t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true;
+        resolve({ tex: t, w: im.width, h: im.height });
+      };
+      im.onerror = function () { resolve(null); };
+      im.src = 'assets/mars-height-surface.png';
+    });
+    return surfHeightP;
+  }
   function applySurfTex() {
     var use = -1;
     for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
-    if (use < 0 || use === surf.tex) return;
-    surf.tex = use;
+    if (use < 0) return;
+    var key = use + (surfHeight ? 100 : 0);
+    if (key === surf.tex) return;
+    surf.tex = key;
+    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };   // нет сглаженной карты — берём обычную
     eachSM(function (m) {
       m.uniforms.uColor.value = texLv[use].color;
-      m.uniforms.uHeight.value = texLv[use].height;
-      m.uniforms.uRes.value.set(H_W, H_H);
+      m.uniforms.uHeight.value = H.tex;
+      m.uniforms.uRes.value.set(H.w, H.h);
     });
   }
 
@@ -2877,11 +2128,11 @@ void main(){
       renderer.setPixelRatio(Math.min(BASE_PR, 1.5));
       resize();
       renderer.domElement.style.cursor = 'grab';
-      return Promise.race([requestLevel(1), wait(5000)]);
+      return Promise.race([Promise.all([requestLevel(1), loadSurfHeight().then(function (h) { surfHeight = h; })]), wait(8000)]);
     }).then(function () {
       applySurfTex();
       tileWant = null;
-      tileUpdate(0, 0, false);   // в режиме человечка окно детализации не используется
+      tileUpdate(0, 0, false);   // окно детализации в режиме человечка не используется
       return true;
     }).then(function () {
       surfSun();
@@ -3014,7 +2265,8 @@ void main(){
     pegArmed = on;
     if (on && homeArmed) setHomeArmed(false);
     pegBtn.setAttribute('aria-pressed', String(on));
-    if (marsHint) marsHint.textContent = on ? 'Click a spot on the planet to land there' : marsHintText;
+    if (marsHint) marsHint.textContent = on ? 'Click a spot to drop a pin, then press “Land here” · click elsewhere to move the pin' : marsHintText;
+    if (!on) clearPin();
     if (mode === 'mars') renderer.domElement.style.cursor = on ? 'crosshair' : 'grab';
   }
   function pegEnd() {
@@ -3046,7 +2298,7 @@ void main(){
     pegEnd();
     if (d.moved) {
       var hit = pickMars(e.clientX, e.clientY);
-      if (hit) dropExplorer(hit.lon, hit.lat);
+      if (hit) { setArmed(true); placePin(hit.lon, hit.lat); }
     } else {
       setArmed(!pegArmed);
     }
@@ -3057,9 +2309,103 @@ void main(){
   });
   cv.addEventListener('click', function (e) {
     if (mode !== 'mars' || !pegArmed || transitioning) return;
+    if (Math.hypot(e.clientX - homeDown.x, e.clientY - homeDown.y) > 6) return;   // это было вращение шара, а не клик
     var hit = pickMars(e.clientX, e.clientY);
-    if (hit) dropExplorer(hit.lon, hit.lat);
+    if (hit) placePin(hit.lon, hit.lat);
   });
+
+  // ---- Выбор точки посадки: красная метка + кнопка «Land here» + окно предпросмотра ----
+  var landPin = null, lpToken = 0, lpRT = null;
+  var lpEl = document.getElementById('land-pin'), lpCard = lpEl.querySelector('.lp-card');
+  var lpView = document.getElementById('lp-view'), lpTitle = document.getElementById('lp-title'), lpSub = document.getElementById('lp-sub');
+  var lpGo = document.getElementById('lp-go'), lpCancel = document.getElementById('lp-cancel');
+  var lpCtx = lpView.getContext('2d');
+  var lpV = new THREE.Vector3(), lpC = new THREE.Vector3();
+  function clearPin() { landPin = null; lpToken++; lpEl.hidden = true; }
+  function placePin(lonDeg, latDeg) {
+    landPin = { lon: lonDeg, lat: latDeg };
+    lpEl.hidden = false;
+    lpTitle.textContent = fmtLonLat(lonDeg, latDeg);
+    var h = siteHeightKm(lonDeg, latDeg);
+    lpSub.textContent = h === null ? '' : 'elevation ' + (h < 0 ? '−' : '') + Math.abs(h).toFixed(1) + ' km';
+    lpView.classList.add('wait');
+    updateLandPin();
+    var tk = ++lpToken;
+    Promise.race([Promise.all([requestLevel(1), loadSurfHeight()]), wait(8000)]).then(function (r) {
+      if (r && r[1]) surfHeight = r[1];
+      if (tk !== lpToken || !landPin || mode !== 'mars') return;
+      return wait(30);
+    }).then(function () {
+      if (tk !== lpToken || !landPin || mode !== 'mars') return;
+      try { drawPreview(landPin.lon, landPin.lat); lpView.classList.remove('wait'); } catch (err) { /* предпросмотр необязателен */ }
+    });
+  }
+  // маленький кадр «что увидим при посадке»: тот же шейдер поверхности, один раз, в маленькую текстуру
+  function drawPreview(lonDeg, latDeg) {
+    if (!surfScene) buildSurface();
+    var use = -1;
+    for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
+    if (use < 0) return;
+    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };
+    var lon = lonDeg * D2R, lat = Math.max(-1.52, Math.min(1.52, latDeg * D2R)), cl = Math.max(0.05, Math.cos(lat));
+    var S = sunFor(lon, lat, 0);
+    var alt = Math.asin(Math.max(-1, Math.min(1, S.sU))), az = Math.atan2(S.sE, S.sN);
+    var W = lpView.width, Ht = lpView.height, th = Math.tan(35 * D2R);
+    var u = surfMat.uniforms;
+    u.uColor.value = texLv[use].color; u.uHeight.value = H.tex; u.uRes.value.set(H.w, H.h);
+    u.uObsLL.value.set(lon, lat);
+    u.uSeed.value.set((lon * 3389.5 * cl) % 200, (lat * 3389.5) % 200);
+    var bx = (lon / (2 * Math.PI) + 0.5) * H.w, by = (lat / Math.PI + 0.5) * H.h;
+    u.uP0.value.set(Math.floor(bx), Math.floor(by), bx - Math.floor(bx), by - Math.floor(by));
+    u.uSun.value.set(S.sE, S.sN, S.sU);
+    u.uStar.value.set(S.c0[0], S.c1[0], S.c2[0], S.c0[1], S.c1[1], S.c2[1], S.c0[2], S.c1[2], S.c2[2]);
+    u.uView.value.set(alt < 0.45 ? az : az + Math.PI, 0.07);
+    u.uScr.value.set(th, W / Ht);
+    u.uPx.value = 2 * th / Ht;
+    if (!lpRT) lpRT = new THREE.WebGLRenderTarget(W, Ht, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false, stencilBuffer: false });
+    renderer.setRenderTarget(lpRT);
+    renderer.render(surfScene, surfCam);
+    renderer.setRenderTarget(null);
+    var buf = new Uint8Array(W * Ht * 4);
+    renderer.readRenderTargetPixels(lpRT, 0, 0, W, Ht, buf);
+    var img = lpCtx.createImageData(W, Ht);
+    for (var y = 0; y < Ht; y++) img.data.set(buf.subarray((Ht - 1 - y) * W * 4, (Ht - y) * W * 4), y * W * 4);
+    lpCtx.putImageData(img, 0, 0);
+    surf.tex = -1;   // материалы поверхности перенастроены предпросмотром — при посадке привяжем заново
+    renderDirty = true;
+  }
+  // метка «прикреплена» к точке шара: пересчитываем экранное положение каждый кадр
+  function updateLandPin() {
+    if (!landPin || mode !== 'mars' || !marsCam) return;
+    var facing = true;
+    if (flatOn) {
+      var px = landPin.lon / 90, c0 = fl.lon / 90;   // ближайшая к центру копия карты
+      while (px - c0 > 2) px -= 4;
+      while (px - c0 < -2) px += 4;
+      lpV.set(px, landPin.lat / 90, 0);
+    } else {
+      var lo = landPin.lon * D2R, la = landPin.lat * D2R;
+      lpV.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
+      marsSpin.localToWorld(lpV);
+      lpC.copy(marsCam.position).sub(lpV);
+      facing = lpV.dot(lpC) > 0;
+    }
+    lpEl.style.visibility = facing ? 'visible' : 'hidden';
+    if (!facing) return;
+    lpV.project(marsCam);
+    var x = (lpV.x * 0.5 + 0.5) * window.innerWidth, y = (-lpV.y * 0.5 + 0.5) * window.innerHeight;
+    lpEl.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
+    var cw = lpCard.offsetWidth || 210, ch = lpCard.offsetHeight || 190;
+    var left = (x + 24 + cw > window.innerWidth - 8) ? -(cw + 24) : 24;
+    var top = Math.max(8 - y, Math.min(window.innerHeight - 8 - ch - y, -ch * 0.5 - 18));
+    lpCard.style.left = left + 'px';
+    lpCard.style.top = top + 'px';
+  }
+  lpGo.addEventListener('click', function () {
+    if (!landPin || transitioning || mode !== 'mars') return;
+    dropExplorer(landPin.lon, landPin.lat);
+  });
+  lpCancel.addEventListener('click', clearPin);
 
   // ---- Управление в режиме поверхности --------------------------------------
   var sptr = {}, sPinch = 0;
@@ -3142,6 +2488,130 @@ void main(){
   });
 
 
+  // ---- Плоский вид: развёртка Марса (equirectangular) вместо шара ----------------
+  // Те же текстуры, те же LOD (уровни и окно детализации), те же режимы Layout, сетка, домашний сектор и «человечек».
+  // Масштаб карты привязан к mv.dist (как у шара), поэтому уровни детализации выбираются той же логикой:
+  //   mv.dist = FLAT_D0 + FLAT_K · s,  где s — половина высоты видимой части карты в единицах «вся карта по высоте = 2».
+  var flatOn = false, flatScene = null, flatMat = null, flatFly = null;
+  var fl = { lon: 0, lat: 0 };                   // центр карты, градусы
+  var FLAT_D0 = 1.05, FLAT_K = 4.0, FLAT_S_MIN = 0.04;
+  var btnView = document.getElementById('btn-view');
+  var flatPan = {};
+
+  var MARS_FLAT_VERT = marsFlatVertGlsl;
+
+  function wrap180(a) { a = (a + 180) % 360; if (a < 0) a += 360; return a - 180; }
+  function flatFit() { return Math.max(1, 2 / (window.innerWidth / window.innerHeight)); }   // s, при котором видна вся карта
+  function flatS() { return Math.max(FLAT_S_MIN, Math.min(flatFit(), (mv.dist - FLAT_D0) / FLAT_K)); }
+  function flatClampLat() {
+    var maxLat = Math.max(0, 90 * (1 - flatS()));
+    fl.lat = Math.max(-maxLat, Math.min(maxLat, fl.lat));
+  }
+
+  function buildFlat() {
+    flatScene = new THREE.Scene();
+    flatMat = new THREE.ShaderMaterial({
+      uniforms: marsMat.uniforms,                  // общие uniform'ы: текстуры, окно детализации, режим слоя, Солнце, сетка
+      vertexShader: MARS_FLAT_VERT,
+      fragmentShader: MARS_FRAG,
+      defines: { SHADOW_STEPS: 0, CRATER_LAYERS: 2, FLAT: 1 },
+      extensions: { derivatives: true }
+    });
+    var geo = new THREE.PlaneGeometry(4, 2, 1, 1);   // 4 × 2 единицы: x = lon/90, y = lat/90
+    for (var i = -1; i <= 1; i++) {                  // три копии, чтобы карта замыкалась по долготе
+      var m = new THREE.Mesh(geo, flatMat);
+      m.position.x = i * 4;
+      m.frustumCulled = false;
+      flatScene.add(m);
+    }
+  }
+
+  function setFlat(on) {
+    if (on === flatOn || transitioning || mode !== 'mars') return;
+    if (on) {
+      if (!flatScene) buildFlat();
+      marsSpin.getWorldQuaternion(tmpQ);
+      tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert());
+      fl.lon = Math.atan2(-tmpV.z, tmpV.x) / D2R;
+      fl.lat = Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R;
+      flatOn = true;
+      mv.auto = false; mv.fly = false; mv.userZoomed = true; flatFly = null;
+      labelsEl.style.visibility = 'hidden';        // подписи сетки привязаны к шару
+      marsHintText = 'Drag to pan · scroll or pinch to zoom · Explorer and Home work on the map too';
+      renderer.compile(flatScene, marsCam);
+    } else {
+      flatOn = false;
+      flatFly = null;
+      labelsEl.style.visibility = '';
+      marsHintText = marsHintInitial;
+    }
+    if (marsHint && !pegArmed && !homeArmed) marsHint.textContent = marsHintText;
+    btnView.setAttribute('aria-checked', String(flatOn));
+    renderDirty = true;
+  }
+  var marsHintInitial = marsHintText;
+  btnView.addEventListener('click', function () { setFlat(!flatOn); });
+
+  // перед updateMars: центр и масштаб карты → mv (по ним updateMars выбирает уровни и окно детализации)
+  function prepFlat(dt) {
+    mv.auto = false; mv.vSpin = 0; mv.vPitch = 0;
+    var lo = FLAT_D0 + FLAT_K * FLAT_S_MIN, hi = FLAT_D0 + FLAT_K * flatFit();
+    mv.tDist = Math.max(lo, Math.min(hi, mv.tDist));
+    mv.dist = Math.max(lo, Math.min(hi, mv.dist));
+    if (mv.fly) {                                  // flyTo() из чипов, «Whole planet» и возврата с поверхности
+      flatFly = { lon: wrap180(-mv.tSpin / D2R - 90), lat: mv.tPitch / D2R };
+      mv.fly = false;
+    }
+    if (flatFly) {
+      var k = 1 - Math.exp(-dt * 4), dl = wrap180(flatFly.lon - fl.lon), da = flatFly.lat - fl.lat;
+      fl.lon = wrap180(fl.lon + dl * k);
+      fl.lat += da * k;
+      if (Math.abs(dl) < 0.05 && Math.abs(da) < 0.05) flatFly = null;
+      renderDirty = true;
+    }
+    flatClampLat();
+    var f = faceAngles(fl.lon, fl.lat);
+    mv.spin = f.spin; mv.pitch = f.pitch;
+  }
+  // после updateMars: камера смотрит прямо на плоскость
+  function updateFlat() {
+    var s = flatS(), zc = s / Math.tan(15 * D2R);   // fov камеры Марса = 30°
+    marsCam.position.set(fl.lon / 90, fl.lat / 90, zc);
+    marsCam.quaternion.set(0, 0, 0, 1);
+    marsCam.updateMatrixWorld(true);
+  }
+  // экранная точка → долгота/широта на карте
+  function pickFlat(cx, cy) {
+    var s = flatS(), visH = 2 * s, asp = window.innerWidth / window.innerHeight;
+    var x = fl.lon / 90 + ((cx / window.innerWidth) * 2 - 1) * visH * asp / 2;
+    var y = fl.lat / 90 - ((cy / window.innerHeight) * 2 - 1) * visH / 2;
+    var lat = y * 90;
+    if (Math.abs(lat) > 90) return null;
+    return { lon: wrap180(x * 90), lat: lat };
+  }
+
+  // перетаскивание карты
+  cv.addEventListener('pointerdown', function (e) {
+    if (mode !== 'mars' || !flatOn) return;
+    flatPan[e.pointerId] = { x: e.clientX, y: e.clientY };
+    flatFly = null;
+  });
+  cv.addEventListener('pointermove', function (e) {
+    var p = flatPan[e.pointerId];
+    if (!p || mode !== 'mars' || !flatOn) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (Object.keys(flatPan).length !== 1) return;   // щипок — это масштаб
+    var u = 2 * flatS() / window.innerHeight * 90;     // градусов на пиксель
+    fl.lon = wrap180(fl.lon - dx * u);
+    fl.lat += dy * u;
+    flatClampLat();
+    renderDirty = true;
+  });
+  function flatPanEnd(e) { delete flatPan[e.pointerId]; }
+  cv.addEventListener('pointerup', flatPanEnd);
+  cv.addEventListener('pointercancel', flatPanEnd);
+
   // ---- Анимация ----------------------------------------------------------
   var marsAcc = 0;
   var clock = new THREE.Clock();
@@ -3157,10 +2627,13 @@ void main(){
       var busy = renderDirty || mv.dragging || mv.fly || Math.abs(mv.dist - mv.tDist) > 0.002 ||
         Math.abs(mv.vSpin) > 0.01 || Math.abs(mv.vPitch) > 0.01 || transitioning;
       if (!busy && marsAcc < 0.034) return;   // в покое — 30 кадров/с
+      if (flatOn) prepFlat(marsAcc);
       updateMars(marsAcc);
+      if (flatOn) updateFlat();
       marsAcc = 0;
       renderDirty = false;
-      renderer.render(marsScene, marsCam);
+      renderer.render(flatOn ? flatScene : marsScene, marsCam);
+      updateLandPin();
       return;
     }
     if (mode === 'surface') {
