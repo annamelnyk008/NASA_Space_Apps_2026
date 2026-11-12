@@ -651,6 +651,7 @@
   var marsBack = document.getElementById('mars-back');
   var marsNav = document.getElementById('mars-nav');
   var poiList = document.getElementById('poi-list');
+  var ovLoadingEl = document.getElementById('ov-loading');
   var btnLayout = document.getElementById('btn-layout');
   var layoutPop = document.getElementById('layout-pop');
   var btnGrid = document.getElementById('btn-grid');
@@ -940,6 +941,7 @@ uniform vec3 uSunLagObj;
 uniform float uFlux;
 uniform vec3 uSunObj;
 uniform float uMode;
+uniform float uBlank;   // 1: слой Layout ещё грузится — сфера чёрная
 uniform float uGrid;
 uniform vec4 uHome;   // lon0, lon1, lat0, lat1 домашнего сектора
 uniform vec4 uCell;   // lon0, lon1, lat0, lat1 (градусы) подсвеченного сектора
@@ -1067,6 +1069,7 @@ void main(){
     T = clamp(T, 148.0, 318.0);
     albedo = texture2D(uRampT, vec2(clamp((T - 140.0) / 175.0, 0.0, 1.0), 0.5)).rgb;
   }
+  if(uBlank > 0.5) albedo = vec3(0.0);
   albedo = pow(albedo, vec3(2.2));
 
   // sun: terminator from the sphere, relief shadows by marching the height map
@@ -1593,7 +1596,25 @@ void main(){
     });
     return rec.p;
   }
-  function syncElev() {
+  // пока слой Layout (кроме цвета и температуры) не загрузился, сфера чёрная, по центру надпись Loading
+  var ovReady = false, ovFail = false;
+  function syncElev() { syncElevCore(); updateBlank(); }
+  function updateBlank() {
+    if (!marsMat) return;
+    var u = marsMat.uniforms, blank = false;
+    if (viewMode === 1 || viewMode >= 3) {
+      if (u.uElevOn.value > 0.5) ovReady = true;
+      else {
+        var rec = ovId === 'elev' ? (texCur >= 0 ? texLv[texCur].ev[ovId] : null) : ovFixed[ovId];
+        if (rec && rec.tex && !rec.ok) ovFail = true;   // тайлы не пришли — показываем запасной вид, а не вечный чёрный
+      }
+      blank = !ovReady && !ovFail;
+    }
+    u.uBlank.value = blank ? 1 : 0;
+    ovLoadingEl.hidden = !blank;
+    renderDirty = true;
+  }
+  function syncElevCore() {
     if (!marsMat || !(viewMode === 1 || viewMode >= 3)) return;
     var u = marsMat.uniforms, id = ovId;
     if (id !== 'elev') {
@@ -1698,6 +1719,7 @@ void main(){
         uExag: { value: EXAG },
         uSunObj: { value: sunObj.clone() },
         uMode: { value: 0 },
+        uBlank: { value: 0 },
         uGrid: { value: 0 },
         uCell: { value: new THREE.Vector4(0, 0, 0, 0) },
         uHome: { value: new THREE.Vector4(0, 0, 0, 0) }
@@ -1883,6 +1905,7 @@ void main(){
     var OV_IDS = ['rough', 'dust', 'plag', 'glass', 'tin'];
     ovId = m >= 3 ? OV_IDS[m - 3] : 'elev';
     if (marsMat) marsMat.uniforms.uMode.value = m >= 3 ? 3 : m;
+    ovReady = false; ovFail = false;
     legendEl.hidden = (m === 0 || m >= 3);
     if (m > 0 && m < 3) buildLegend(m);
     syncElev();
