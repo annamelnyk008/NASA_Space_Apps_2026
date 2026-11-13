@@ -1,5 +1,10 @@
 // Legacy runtime: режимы Mars и Surface пока сохраняют общее замыкание. Независимые подсистемы вынесены в core/, solar/, data/, lib/ и shaders/.
-import '../core/three-global.js';
+import { THREE } from '../core/three.js';
+import { wait, waitFor } from '../lib/async.js';
+import { renderFact } from '../mars/facts.js';
+import { HEAVY } from '../app/device.js';
+import { createMarsSun } from '../mars/sun.js';
+import { createLegend, makeRampTexture } from '../mars/legend.js';
 import { D2R, DET_PAD, DET_TOT, DET_WIN, EXAG, FIT_RADIUS, FLAT_D0, FLAT_K, FLAT_S_MIN, FOV, GEO_SIZES, H_HI, H_LO, MAX_GEO, PANO_MIN_FOV, TILT_DEG } from '../config.js';
 import { ELEV_RAMP, K_HI, K_LO, TEMP_RAMP, rampFrom } from '../data/colorRamps.js';
 import { marsSolar, sunFor } from '../data/marsSolar.js';
@@ -26,7 +31,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   var fallback = document.getElementById('fallback');
 
   var rendererBundle = createRenderer({
-    THREE: window.THREE,
+    THREE: THREE,
     stage: stage,
     tag: tag,
     fallback: fallback,
@@ -78,7 +83,6 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   // ======================================================================
   //  ПОДРОБНЫЙ МАРС: реальные карты, смещение геометрии, LOD, реальное Солнце
   // ======================================================================
-  var HEAVY = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   var BASE_PR = renderer.getPixelRatio();
 
   var mode = 'system';                   // 'system' | 'mars'
@@ -93,22 +97,16 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     spin: 0, pitch: 0, dist: 12, tSpin: 0, tPitch: 0, tDist: 5, fit: 5,
     fly: false, auto: true, dragging: false, vSpin: 0, vPitch: 0, userZoomed: false
   };
-  var sunInfo = { lonE: 0, lat: 0, Ls: 0, mtc: 0 };
-  var sunObj = new THREE.Vector3(1, 0, 0), sunWorld = new THREE.Vector3(1, 0, 0);
+  const marsSun = createMarsSun();
+  const sunInfo = marsSun.info;
+  const sunObj  = marsSun.dir;
+  var sunWorld = new THREE.Vector3(1, 0, 0); 
   var tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3(), tmpC = new THREE.Vector3();
   var uiTimer = 0;
 
   var veil = document.getElementById('veil');
   var factEl = document.getElementById('ld-fact');
-  function showFact() {
-    var last = -1;
-    try { last = +(localStorage.getItem('lastFact') || -1); } catch (e) {}
-    var i;
-    do { i = Math.floor(Math.random() * SPACE_FACTS.length); } while (i === last && SPACE_FACTS.length > 1);
-    try { localStorage.setItem('lastFact', String(i)); } catch (e) {}
-    factEl.textContent = SPACE_FACTS[i];
-  }
-
+  function showFact() { renderFact(factEl); }
   var marsUI = document.getElementById('mars-ui');
   var marsBack = document.getElementById('mars-back');
   var marsNav = document.getElementById('mars-nav');
@@ -121,57 +119,13 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   var legendEl = document.getElementById('legend');
   var legendBar = document.getElementById('legend-bar');
   var legendTicks = document.getElementById('legend-ticks');
+  var legend = createLegend({ root: legendEl, bar: legendBar, ticks: legendTicks });
   var sunEl = document.getElementById('mars-sun');
   var lodEl = document.getElementById('mars-lod');
   var labelsEl = document.getElementById('mars-labels');
 
-  function makeRampTexture(tab, lo, hi) {
-    tab = tab || ELEV_RAMP; lo = (lo === undefined) ? H_LO : lo; hi = (hi === undefined) ? H_HI : hi;
-    var c = document.createElement('canvas');
-    c.width = 256; c.height = 1;
-    var g = c.getContext('2d');
-    var img = g.createImageData(256, 1);
-    for (var i = 0; i < 256; i++) {
-      var col = rampFrom(tab, lo + (hi - lo) * i / 255);
-      img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = 255;
-    }
-    g.putImageData(img, 0, 0);
-    var t = new THREE.CanvasTexture(c);
-    t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
-    t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
-    return t;
-  }
-  function buildLegend(m) {
-    m = m || 1;
-    var tab = m === 2 ? TEMP_RAMP : ELEV_RAMP, lo = m === 2 ? K_LO : H_LO, hi = m === 2 ? K_HI : H_HI;
-    var stops = tab.map(function (st) {
-      return 'rgb(' + st[1].join(',') + ') ' + (((st[0] - lo) / (hi - lo)) * 100).toFixed(1) + '%';
-    });
-    legendBar.style.background = 'linear-gradient(90deg,' + stops.join(',') + ')';
-    legendTicks.innerHTML = '';
-    var ticks = m === 2 ? [-120, -90, -60, -30, 0, 30] : [-8, -4, 0, 4, 8, 12, 16, 20];
-    ticks.forEach(function (v) {
-      var x = m === 2 ? v + 273.15 : v;
-      var el = document.createElement('span');
-      el.className = 'legend-tick';
-      el.style.left = (((x - lo) / (hi - lo)) * 100).toFixed(2) + '%';
-      el.textContent = (v < 0 ? '−' : v > 0 ? '+' : '') + Math.abs(v);
-      legendTicks.appendChild(el);
-    });
-    var tt = legendEl.querySelector('.legend-title');
-    if (m === 2) {
-      tt.textContent = 'Surface temperature, °C (modelled, live)';
-    } else {
-      tt.textContent = 'Elevation above the Mars datum, km';
-    }
-  }
-  buildLegend();
 
-  function updateSun() {
-    sunInfo = marsSolar(Date.now());
-    var la = sunInfo.lat * D2R, lo = sunInfo.lonE * D2R;
-    sunObj.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
-  }
+  function updateSun() { marsSun.update(); }
   updateSun();
 
 
@@ -424,8 +378,8 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
         uDetHOn: { value: 0 },
         uDetRect: { value: new THREE.Vector4(0, 0, 1, 1) },
         uDetOn: { value: 0 },
-        uRamp: { value: makeRampTexture() },
-        uRampT: { value: makeRampTexture(TEMP_RAMP, K_LO, K_HI) },
+        uRamp:  { value: makeRampTexture({ THREE }) },
+        uRampT: { value: makeRampTexture({ THREE, tab: TEMP_RAMP, lo: K_LO, hi: K_HI }) },
         uSunLagObj: { value: new THREE.Vector3(1, 0, 0) },
         uFlux: { value: 586 },
         uRes: { value: new THREE.Vector2(2048, 1024) },
@@ -598,7 +552,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     overlay.id = m >= 3 ? OV_IDS[m - 3] : 'elev';
     if (marsMat) marsMat.uniforms.uMode.value = m >= 3 ? 3 : m;
     legendEl.hidden = (m === 0 || m >= 3);
-    if (m > 0 && m < 3) buildLegend(m);
+    if (m > 0 && m < 3) legend.setMode(m);
     syncElev();
     var opts = layoutPop.querySelectorAll('.opt');
     for (var i = 0; i < opts.length; i++) {
@@ -708,8 +662,6 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
       }
     }
   }
-
-  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   function openMars() {
     if (transitioning || mode === 'mars') return;
