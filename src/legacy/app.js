@@ -6,7 +6,7 @@ import { HEAVY } from '../app/device.js';
 import { createMarsSun } from '../mars/sun.js';
 import { createLegend, makeRampTexture } from '../mars/legend.js';
 import { D2R, DET_PAD, DET_TOT, DET_WIN, EXAG, FIT_RADIUS, FLAT_D0, FLAT_K, FLAT_S_MIN, FOV, GEO_SIZES, H_HI, H_LO, MAX_GEO, PANO_MIN_FOV, TILT_DEG } from '../config.js';
-import { ELEV_RAMP, K_HI, K_LO, TEMP_RAMP, rampFrom } from '../data/colorRamps.js';
+import { ELEV_RAMP, rampFrom } from '../data/colorRamps.js';
 import { marsSolar, sunFor } from '../data/marsSolar.js';
 import { PH_HEIGHT, buildMosaic, canvasTex } from '../data/mosaic.js';
 import { SPACE_FACTS } from '../data/spaceFacts.js';
@@ -14,12 +14,16 @@ import { TILES, TS, overlay } from '../data/tiles.js';
 import { fmtClock, fmtLonLat, lonText, pad2 } from '../lib/format.js';
 import { angDiff, clamp01, wrap180 } from '../lib/math.js';
 import { clampDist, clampFov, faceAngles } from '../lib/view.js';
-import { MARS_ATMO_FRAG, MARS_ATMO_VERT, MARS_FLAT_VERT, MARS_FRAG, MARS_VERT, SURF_FRAG, SURF_SHOW_FRAG, SURF_VERT } from '../shaders/index.js';
 import { moonGeometry } from '../solar/geometry.js';
 import { createSolarSystem } from '../solar/system.js';
 import { createRenderer } from '../core/renderer.js';
 import { createViewportController } from '../core/viewport.js';
 import { createPlanetTagUpdater } from '../solar/planet-tag.js';
+import { MARS_FLAT_VERT, SURF_FRAG, SURF_SHOW_FRAG, SURF_VERT } from '../shaders/index.js';
+import { createMarsMaterials } from '../mars/materials.js';
+import { createGeo } from '../mars/geo.js';
+import { createLabels } from '../mars/labels.js';
+import { createElev } from '../mars/elev.js';
 
 
 (function () {
@@ -90,7 +94,6 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   var marsScene = null, marsRoot = null, marsSpin = null, marsMat = null;
   var marsAtmoMat = null, marsLight = null;
   var marsMoons = [];
-  var geoMeshes = [null, null, null], geoCur = -1;
   var viewMode = 0, gridOn = false;
   var perf = { t: 0, n: 0, warm: 40 };
   var mv = {
@@ -123,6 +126,31 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   var sunEl = document.getElementById('mars-sun');
   var lodEl = document.getElementById('mars-lod');
   var labelsEl = document.getElementById('mars-labels');
+
+  var labels = createLabels({
+    labelsEl,
+    getMarsCam: function () { return marsCam; },
+    getMarsSpin: function () { return marsSpin; },
+    isGridOn: function () { return gridOn; }
+  });
+
+  var geo = createGeo({
+    getMarsMat: function () { return marsMat; },
+    getMarsSpin: function () { return marsSpin; },
+    getDist: function () { return mv.dist; },
+    onLodChange: function () { updateLodText(); renderDirty = true; }
+  });
+
+  var elev = createElev({
+    renderer,
+    getMarsMat: function () { return marsMat; },
+    getViewMode: function () { return viewMode; },
+    getTexCur: function () { return texCur; },
+    getTileCur: function () { return tileCur; },
+    getTexLv: function () { return texLv; },
+    getLevels: function () { return LEVELS; },
+    onDirty: function () { renderDirty = true; }
+  });
 
 
   function updateSun() { marsSun.update(); }
@@ -216,7 +244,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     setOn(marsMat.uniforms);
     if (typeof eachSM === 'function') { try { eachSM(function (m) { setOn(m.uniforms); }); } catch (e) {} }
     updateLodText();
-    syncElev();
+    elev.syncElev();
     renderDirty = true;
   }
   // lonDeg/latDeg — точка, на которую смотрим; z — нужный уровень тайлов
@@ -252,101 +280,14 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     u.uHeight.value = texLv[use].height;
     u.uRes.value.set(H_W, H_H);
     updateLodText();
-    syncElev();
+    elev.syncElev();
   }
   // ---- слой Layout (Elevation / Roughness / Dust …): строится лениво, только для активного режима ----
-  function dropOtherOv(map, keep) {
-    for (var k in map) if (k !== keep) { if (map[k].tex) map[k].tex.dispose(); delete map[k]; }
-  }
-  var ovFixed = {};   // слои без LOD: id → { tex, ok }
-  function ensureLevelElev(i) {
-    var L = texLv[i], id = overlay.id;
-    if (L.ev[id]) return L.ev[id].p;
-    dropOtherOv(L.ev, id);
-    var rec = L.ev[id] = { tex: null, ok: false };
-    var maxA = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-    rec.p = buildMosaic('elev', LEVELS[i].z, 0, 0, LEVELS[i].w, LEVELS[i].h).then(function (cv) {
-      rec.tex = canvasTex(cv, false, true, maxA); rec.ok = cv._ok > 0; return rec;
-    });
-    return rec.p;
-  }
-  function ensureWinElev(T) {
-    var id = overlay.id;
-    if (T.ev[id]) return T.ev[id].p;
-    dropOtherOv(T.ev, id);
-    var rec = T.ev[id] = { tex: null, ok: false };
-    var maxA = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
-    rec.p = buildMosaic('elev', T.z, T.ox - DET_PAD, T.oy - DET_PAD, DET_TOT, DET_TOT).then(function (cv) {
-      rec.tex = canvasTex(cv, false, false, maxA); rec.ok = cv._ok > 0; return rec;
-    });
-    return rec.p;
-  }
-  function syncElev() {
-    if (!marsMat || !(viewMode === 1 || viewMode >= 3)) return;
-    var u = marsMat.uniforms, id = overlay.id;
-    if (id !== 'elev') {
-      // Roughness / Dust / Plagioclase / Glass / Thermal inertia: один фиксированный уровень (zoom 1: 2 ряда × 4 колонки = 8 тайлов), без LOD и окна детализации
-      var fr = ovFixed[id];
-      u.uDetEOn.value = 0;
-      if (fr && fr.tex) { u.uElev.value = fr.tex; u.uElevOn.value = fr.ok ? 1 : 0; }
-      else {
-        u.uElevOn.value = 0;
-        if (!fr) {
-          dropOtherOv(ovFixed, id);
-          fr = ovFixed[id] = { tex: null, ok: false };
-          var zf = 1, maxF = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-          fr.p = buildMosaic('elev', zf, 0, 0, Math.pow(2, zf + 1) * TS, Math.pow(2, zf) * TS).then(function (cv) {
-            fr.tex = canvasTex(cv, false, true, maxF); fr.ok = cv._ok > 0;
-            if (id === overlay.id) { syncElev(); renderDirty = true; }
-          });
-        }
-      }
-      renderDirty = true;
-      return;
-    }
-    var i = texCur;
-    if (i >= 0) {
-      var rec = texLv[i].ev[id];
-      if (rec && rec.tex) { u.uElev.value = rec.tex; u.uElevOn.value = rec.ok ? 1 : 0; }
-      else { u.uElevOn.value = 0; ensureLevelElev(i).then(function () { if (id === overlay.id) { syncElev(); renderDirty = true; } }); }
-    }
-    var T = tileCur;
-    if (T && T.z < TILES.zSurface - 1) {
-      var wr = T.ev[id];
-      if (wr && wr.tex) { u.uDetE.value = wr.tex; u.uDetEOn.value = wr.ok ? 1 : 0; }
-      else { u.uDetEOn.value = 0; ensureWinElev(T).then(function () { if (id === overlay.id && tileCur === T) { syncElev(); renderDirty = true; } }); }
-    } else { u.uDetEOn.value = 0; }
-    renderDirty = true;
-  }
 
-  function makeGeoMesh(i) {
-    if (geoMeshes[i] || !marsMat) return;
-    var m = new THREE.Mesh(new THREE.SphereGeometry(1, GEO_SIZES[i][0], GEO_SIZES[i][1]), marsMat);
-    m.frustumCulled = false;
-    m.visible = false;
-    marsSpin.add(m);
-    geoMeshes[i] = m;
-  }
-  function updateGeoLod() {
-    var d = mv.dist, w = geoCur < 0 ? 0 : geoCur;
-    if (geoCur < 0) { w = d > 4.6 ? 0 : (d > 2.5 ? 1 : 2); }
-    else {
-      if (w === 0 && d < 4.4) w = 1;
-      if (w >= 1 && d > 4.8) w = 0;
-      if (w <= 1 && d < 2.35) w = 2;
-      if (w === 2 && d > 2.65) w = 1;
-    }
-    w = Math.min(w, MAX_GEO);
-    while (w > 0 && !geoMeshes[w]) w--;
-    if (w === geoCur) return;
-    geoCur = w;
-    for (var i = 0; i < geoMeshes.length; i++) if (geoMeshes[i]) geoMeshes[i].visible = (i === w);
-    updateLodText();
-  }
   function updateLodText() {
     if (!lodEl) return;
     var lv = texCur >= 0 ? LEVELS[texCur].name : '…';
-    var g = geoCur >= 0 ? GEO_SIZES[geoCur][0] + '×' + GEO_SIZES[geoCur][1] : '…';
+    var g = geo.geoCur >= 0 ? GEO_SIZES[geo.geoCur][0] + '×' + GEO_SIZES[geo.geoCur][1] : '…';
     lodEl.textContent = 'Detail level ' + (Math.max(texCur, 0) + 1) + ' · ' + lv + ' maps' + (tileCur ? ' + zoom ' + tileCur.z : '') + ' · mesh ' + g;
   }
 
@@ -359,50 +300,10 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     marsSpin = new THREE.Object3D();
     marsRoot.add(marsSpin);
 
-    var phColor = new THREE.DataTexture(new Uint8Array([170, 92, 64, 255]), 1, 1, THREE.RGBAFormat);
-    phColor.needsUpdate = true;
-    var phHeight = new THREE.DataTexture(new Uint8Array([74, 209, 0, 255]), 1, 1, THREE.RGBAFormat);
-    phHeight.magFilter = THREE.NearestFilter; phHeight.minFilter = THREE.NearestFilter; phHeight.generateMipmaps = false;
-    phHeight.needsUpdate = true;
-
-    marsMat = new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: phColor },
-        uHeight: { value: phHeight },
-        uDetH: { value: phHeight },
-        uDetC: { value: phColor },
-        uElev: { value: phColor },
-        uDetE: { value: phColor },
-        uElevOn: { value: 0 },
-        uDetEOn: { value: 0 },
-        uDetHOn: { value: 0 },
-        uDetRect: { value: new THREE.Vector4(0, 0, 1, 1) },
-        uDetOn: { value: 0 },
-        uRamp:  { value: makeRampTexture({ THREE }) },
-        uRampT: { value: makeRampTexture({ THREE, tab: TEMP_RAMP, lo: K_LO, hi: K_HI }) },
-        uSunLagObj: { value: new THREE.Vector3(1, 0, 0) },
-        uFlux: { value: 586 },
-        uRes: { value: new THREE.Vector2(2048, 1024) },
-        uExag: { value: EXAG },
-        uSunObj: { value: sunObj.clone() },
-        uMode: { value: 0 },
-        uGrid: { value: 0 },
-        uCell: { value: new THREE.Vector4(0, 0, 0, 0) },
-        uHome: { value: new THREE.Vector4(0, 0, 0, 0) }
-      },
-      vertexShader: MARS_VERT,
-      fragmentShader: MARS_FRAG,
-      defines: { SHADOW_STEPS: HEAVY ? 6 : 0, CRATER_LAYERS: 2 },
-      extensions: { derivatives: true }
-    });
-    makeGeoMesh(0);
-
-    marsAtmoMat = new THREE.ShaderMaterial({
-      uniforms: { uSun: { value: new THREE.Vector3(1, 0, 0) } },
-      vertexShader: MARS_ATMO_VERT,
-      fragmentShader: MARS_ATMO_FRAG,
-      side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
-    });
+    var mats = createMarsMaterials({ sunObj });
+    marsMat = mats.marsMat;
+    marsAtmoMat = mats.atmoMat;
+    geo.makeGeoMesh(0);
     marsRoot.add(new THREE.Mesh(new THREE.SphereGeometry(1.1, 64, 48), marsAtmoMat));
 
     var moonDefs = [
@@ -424,11 +325,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
       m.position.x = d.orbit;
       pivot.add(m);
       marsMoons.push({ def: d, pivot: pivot, mesh: m, angle: d.seed });
-      var mel = document.createElement('div');
-      mel.className = 'glabel moon';
-      mel.textContent = d.name;
-      labelsEl.appendChild(mel);
-      moonLabels.push({ el: mel, mesh: m });
+      labels.addMoonLabel(d.name, m);
     });
 
     marsScene.add(new THREE.AmbientLight(0x445577, 0.18));
@@ -439,7 +336,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     st.frustumCulled = false;
     marsScene.add(st);
 
-    buildLabels();
+    labels.buildGridLabels();
 
     viewport.setMarsResizeHandler(function (w, h) {
       marsCam.aspect = w / h;
@@ -453,69 +350,8 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
   }
 
   // ---- Подписи сетки -------------------------------------------------------
-  var gLabels = [];
-  function buildLabels() {
-    var lon, defs = [];
-    for (lon = -150; lon <= 180; lon += 30) defs.push({ kind: 'lon', lon: lon, lat: 0, text: lonText(lon) });
-    [-60, -30, 30, 60].forEach(function (lat) {
-      defs.push({ kind: 'lat', lon: 0, lat: lat, text: Math.abs(lat) + '°' + (lat > 0 ? 'N' : 'S') });
-    });
-    defs.forEach(function (d) {
-      var el = document.createElement('div');
-      el.className = 'glabel ' + d.kind;
-      el.textContent = d.text;
-      labelsEl.appendChild(el);
-      d.el = el;
-      gLabels.push(d);
-    });
-  }
-  var moonLabels = [];
+
   var moonW = new THREE.Vector3(), moonCam = new THREE.Vector3();
-  function updateMoonLabels() {
-    var w = window.innerWidth, h = window.innerHeight;
-    marsCam.updateMatrixWorld(true);
-    for (var i = 0; i < moonLabels.length; i++) {
-      var L = moonLabels[i];
-      L.mesh.getWorldPosition(moonW);
-      moonCam.copy(marsCam.position);
-      // закрыт ли спутник диском Марса: расстояние от центра до отрезка камера—спутник
-      var dx = moonW.x - moonCam.x, dy = moonW.y - moonCam.y, dz = moonW.z - moonCam.z;
-      var len2 = dx * dx + dy * dy + dz * dz;
-      var tt = Math.max(0, Math.min(1, -(moonCam.x * dx + moonCam.y * dy + moonCam.z * dz) / len2));
-      var px = moonCam.x + dx * tt, py = moonCam.y + dy * tt, pz = moonCam.z + dz * tt;
-      var occluded = tt > 0.001 && tt < 0.999 && (px * px + py * py + pz * pz) < 1.0;
-      moonW.project(marsCam);
-      var x = (moonW.x * 0.5 + 0.5) * w, y = (-moonW.y * 0.5 + 0.5) * h;
-      var vis = !occluded && moonW.z < 1 && x > 0 && x < w && y > 0 && y < h;
-      L.el.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
-      L.el.style.opacity = vis ? '1' : '0';
-    }
-  }
-  function updateLabels() {
-    updateMoonLabels();
-    if (!gridOn) return;
-    var w = window.innerWidth, h = window.innerHeight;
-    marsCam.updateMatrixWorld(true);
-    marsSpin.getWorldQuaternion(tmpQ);
-    tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert());
-    var lonC = Math.atan2(-tmpV.z, tmpV.x) / D2R;
-    var latLon = Math.round(lonC / 30) * 30;
-    for (var i = 0; i < gLabels.length; i++) {
-      var d = gLabels[i];
-      var lo = (d.kind === 'lat' ? latLon : d.lon) * D2R, la = d.lat * D2R;
-      tmpW.set(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo));
-      tmpW.multiplyScalar(1.0).applyMatrix4(marsSpin.matrixWorld);
-      tmpC.copy(tmpW).normalize();
-      var toCam = tmpV.copy(marsCam.position).sub(tmpW).normalize();
-      var facing = tmpC.dot(toCam);
-      var op = clamp01((facing - 0.18) / 0.25);
-      if (op <= 0.01) { d.el.style.opacity = '0'; continue; }
-      tmpW.project(marsCam);
-      var x = (tmpW.x * 0.5 + 0.5) * w, y = (-tmpW.y * 0.5 + 0.5) * h;
-      d.el.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
-      d.el.style.opacity = op.toFixed(2);
-    }
-  }
 
   function clearPressed() {
     var bs = marsNav.querySelectorAll('button');
@@ -553,7 +389,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     if (marsMat) marsMat.uniforms.uMode.value = m >= 3 ? 3 : m;
     legendEl.hidden = (m === 0 || m >= 3);
     if (m > 0 && m < 3) legend.setMode(m);
-    syncElev();
+    elev.syncElev();
     var opts = layoutPop.querySelectorAll('.opt');
     for (var i = 0; i < opts.length; i++) {
       opts[i].setAttribute('aria-checked', String(parseInt(opts[i].getAttribute('data-mode'), 10) === m));
@@ -564,7 +400,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     if (marsMat) marsMat.uniforms.uGrid.value = (on || homeArmed) ? 1 : 0;
     btnGrid.setAttribute('aria-pressed', String(on));
     if (marsMat && marsSpin) { marsSpin.getWorldQuaternion(tmpQ); tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert()); updateSector(Math.atan2(-tmpV.z, tmpV.x) / D2R, Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R); renderDirty = true; }
-    if (!on) for (var i = 0; i < gLabels.length; i++) gLabels[i].el.style.opacity = '0';
+    if (!on) labels.hideGridLabels();
   }
   function updateTiles() {
     if (mv.dist > (tileCur ? 3.4 : 2.9) || texLv[MAX_LEVEL].state !== 2) { tileUpdate(0, 0, false); tileWant = null; return; }
@@ -643,9 +479,10 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
     if (mv.dist < 5.5) requestLevel(1).then(applyTexLevel);
     if (mv.dist < 4.2) requestLevel(2).then(applyTexLevel);
     applyTexLevel();
-    updateGeoLod();
+    geo.updateGeoLod();
 
-    updateLabels();
+    labels.updateLabels();
+    labels.updateMoonLabels();
     uiTimer -= dt;
     if (uiTimer <= 0) { uiTimer = 0.5; updateReadout(); updateTiles(); }
 
@@ -683,13 +520,13 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
       resetMarsView(true);
       texCur = -1;
       applyTexLevel();
-      updateGeoLod();
+      geo.updateGeoLod();
       updateReadout();
       renderer.compile(marsScene, marsCam);
       renderer.domElement.style.cursor = 'grab';
       // фоновая подгрузка более подробных уровней и сеток
       requestLevel(1).then(applyTexLevel);
-      setTimeout(function () { makeGeoMesh(1); updateGeoLod(); }, 500);
+      setTimeout(function () { geo.makeGeoMesh(1); geo.updateGeoLod(); }, 500);
       return wait(80);
     }).then(function () {
       veil.classList.remove('on');
@@ -1257,7 +1094,7 @@ import { createPlanetTagUpdater } from '../solar/planet-tag.js';
       resize();
       texCur = -1;
       applyTexLevel();
-      updateGeoLod();
+      geo.updateGeoLod();
       flyTo(lonDeg, latDeg, 2.3);
       renderer.domElement.style.cursor = 'grab';
       return wait(100);
