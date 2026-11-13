@@ -404,8 +404,8 @@ import { setupInput } from './app/input.js';
     marsBack: ui.marsBack,
     setArmed: (on) => peg.setArmed(on),
     setHomeArmed: (on) => home.setHomeArmed(on),
-    pegArmed: peg.getPegArmed(),
-    homeArmed: home.getHomeArmed(),
+    pegArmed: () => peg.getPegArmed(),
+    homeArmed: () => home.getHomeArmed(),
 
     getMarsScene: () => marsScene,
     getMarsCam: () => marsCam,
