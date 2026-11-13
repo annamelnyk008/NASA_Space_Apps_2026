@@ -22,6 +22,9 @@ import { createHome } from './mars/home.js';
 import { createLanding } from './mars/landing.js';
 import { createPeg } from './mars/peg.js';
 import { createPick } from './mars/pick.js';
+import { renderFact } from './mars/facts.js';
+import { createMarkers } from './markers/panel.js';
+import { createPlacesSection } from './markers/places.js';
 
 import { createSurfaceScene } from './surface/scene.js';
 import { createPano } from './surface/pano.js';
@@ -64,10 +67,17 @@ import { setupInput } from './app/input.js';
   const placeTag = createPlanetTagUpdater({ THREE, mars, renderer, camera, tag });
 
   // ---- 3. DOM-рефы Марса ----
+  // случайный факт «Did you know?» на экране загрузки (функция ниже использует ui.factEl)
+  const showFact = () => { if (ui.factEl) renderFact(ui.factEl); };
   const ui = {
     marsUI: document.getElementById('mars-ui'),
     marsBack: document.getElementById('mars-back'),
     marsNav: document.getElementById('mars-nav'),
+    // левая панель Markers и надпись Loading
+    sideToggle: document.getElementById('side-toggle'),
+    sidePanel: document.getElementById('side-panel'),
+    poiList: document.getElementById('poi-list'),
+    ovLoadingEl: document.getElementById('ov-loading'),
     btnLayout: document.getElementById('btn-layout'),
     layoutPop: document.getElementById('layout-pop'),
     btnGrid: document.getElementById('btn-grid'),
@@ -81,6 +91,7 @@ import { setupInput } from './app/input.js';
     lodEl: document.getElementById('mars-lod'),
     labelsEl: document.getElementById('mars-labels'),
     veil: document.getElementById('veil'),
+    kickerEl: document.querySelector('#veil .ld-kicker'),
     factEl: document.getElementById('ld-fact'),
     // surface
     surfUIEl: document.getElementById('surf-ui'),
@@ -170,7 +181,8 @@ import { setupInput } from './app/input.js';
     getTileCur: () => tiles.state.tileCur,
     getTexLv: () => tex.texLv,
     getLevels: () => tex.LEVELS,
-    onDirty: markDirty
+    onDirty: markDirty,
+    onBlank: (blank) => { if (ui.ovLoadingEl) ui.ovLoadingEl.hidden = !blank; }
   });
 
   // ---- 6. Марс: сцена ----
@@ -234,6 +246,20 @@ import { setupInput } from './app/input.js';
     homeArmedRef: () => (home ? home.getHomeArmed() : false),
     updateHome: () => { if (home) home.updateHome(); },
     onDirty: markDirty
+  });
+
+  // ---- 8b. Левая панель Markers (Places of interest) ----
+  createMarkers({
+    toggle: ui.sideToggle,
+    panel: ui.sidePanel,
+    sections: [
+      createPlacesSection({
+        list: ui.poiList,
+        getTransitioning: () => state.transitioning,
+        clearPressed: () => controls.clearPressed(),
+        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
+      })
+    ]
   });
 
   // ---- 9. Марс: home / peg / landing ----
@@ -320,7 +346,7 @@ import { setupInput } from './app/input.js';
     tex, tiles, geo,
     clearPressed: () => controls.clearPressed(),
     flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
-    showFact: () => { /* renderFact в facts.js, вызывается в dropExplorer */ },
+    showFact: showFact,
     setArmed: (on) => peg.setArmed(on),
     siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),
     surfaceScene,
@@ -358,6 +384,8 @@ import { setupInput } from './app/input.js';
     getTransitioning: () => state.transitioning,
     setTransitioning: (v) => { state.transitioning = v; },
     veil: ui.veil,
+    kickerEl: ui.kickerEl,
+    showFact,
     tag,
     marsUI: ui.marsUI,
     layoutPop: ui.layoutPop,

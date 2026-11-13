@@ -11,6 +11,8 @@ export function createMarsTransitions(ctx) {
     getTransitioning,
     setTransitioning,
     veil,
+    kickerEl,
+    showFact,
     tag,
     marsUI,
     layoutPop,
@@ -39,7 +41,11 @@ export function createMarsTransitions(ctx) {
   function openMars() {
     if (getTransitioning() || getMode() === 'mars') return;
     setTransitioning(true);
-    veil.classList.add('on');
+    // экран загрузки с подписью «Loading Mars», пока собирается сцена и грузится карта
+    const kickerPrev = kickerEl ? kickerEl.textContent : '';
+    if (kickerEl) kickerEl.textContent = 'Loading Mars';
+    if (showFact) showFact();
+    veil.classList.add('load', 'on');
     wait(480).then(function () {
       buildMarsIfNeeded();
       return Promise.race([tex.requestLevel(0), wait(8000).then(function () { return false; })]);
@@ -67,7 +73,11 @@ export function createMarsTransitions(ctx) {
       veil.classList.remove('on');
       marsBack.focus({ preventScroll: true });
       return wait(480);
-    }).then(function () { setTransitioning(false); });
+    }).then(function () {
+      veil.classList.remove('load');
+      if (kickerEl) kickerEl.textContent = kickerPrev;
+      setTransitioning(false);
+    });
   }
 
   function closeMars() {

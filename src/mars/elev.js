@@ -4,9 +4,11 @@ import { buildMosaic, canvasTex } from '../data/mosaic.js';
 
 export function createElev({
   renderer, getMarsMat, getViewMode, getTexCur, getTileCur,
-  getTexLv, getLevels, onDirty
+  getTexLv, getLevels, onDirty, onBlank
 }) {
   const ovFixed = {};
+  // пока слой Layout (кроме цвета и температуры) не загрузился, сфера чёрная, по центру надпись Loading
+  let ovReady = false, ovFail = false;
 
   function dropOtherOv(map, keep) {
     for (const k in map) if (k !== keep) { if (map[k].tex) map[k].tex.dispose(); delete map[k]; }
@@ -41,7 +43,30 @@ export function createElev({
     return rec.p;
   }
 
-  function syncElev() {
+  function resetBlank() { ovReady = false; ovFail = false; }
+
+  function updateBlank() {
+    const marsMat = getMarsMat();
+    if (!marsMat) return;
+    const u = marsMat.uniforms, viewMode = getViewMode();
+    let blank = false;
+    if (viewMode === 1 || viewMode >= 3) {
+      if (u.uElevOn.value > 0.5) ovReady = true;
+      else {
+        const id = overlay.id, texCur = getTexCur();
+        const rec = id === 'elev' ? (texCur >= 0 ? getTexLv()[texCur].ev[id] : null) : ovFixed[id];
+        if (rec && rec.tex && !rec.ok) ovFail = true;   // тайлы не пришли — запасной вид вместо вечного чёрного
+      }
+      blank = !ovReady && !ovFail;
+    }
+    u.uBlank.value = blank ? 1 : 0;
+    if (onBlank) onBlank(blank);
+    onDirty();
+  }
+
+  function syncElev() { syncElevCore(); updateBlank(); }
+
+  function syncElevCore() {
     const marsMat = getMarsMat();
     const viewMode = getViewMode();
     if (!marsMat || !(viewMode === 1 || viewMode >= 3)) return;
@@ -88,5 +113,5 @@ export function createElev({
     onDirty();
   }
 
-  return { syncElev };
+  return { syncElev, resetBlank };
 }

@@ -36,9 +36,8 @@ export function createMarsControls(deps) {
   let gridOn = false;
 
   function clearPressed() {
-    const marsNav = document.getElementById('mars-nav');
-    if (!marsNav) return;
-    const bs = marsNav.querySelectorAll('button');
+    // кнопки быстрого перехода внизу и список мест в панели Markers
+    const bs = document.querySelectorAll('#mars-nav button, #poi-list button');
     for (let i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', 'false');
   }
 
@@ -89,6 +88,7 @@ export function createMarsControls(deps) {
     if (marsMat) marsMat.uniforms.uMode.value = m >= 3 ? 3 : m;
     legendEl.hidden = m === 0 || m >= 3;
     if (m > 0 && m < 3) legend.setMode(m);
+    elev.resetBlank();
     elev.syncElev();
     const opts = layoutPop.querySelectorAll('.opt');
     for (let i = 0; i < opts.length; i++) {

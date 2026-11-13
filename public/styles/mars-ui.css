@@ -349,3 +349,36 @@
 @media (prefers-reduced-motion: reduce) {
   .vs-knob { transition: none; }
 }
+
+/* Надпись по центру, пока грузится слой Layout */
+#ov-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 600 26px/1 var(--font-display);
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+#ov-loading[hidden] { display: none; }
+
+#ov-loading i {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: ovspin 0.9s linear infinite;
+}
+
+@keyframes ovspin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  #ov-loading i { animation: none; }
+}

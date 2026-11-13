@@ -6,6 +6,7 @@ uniform vec3 uSunLagObj;
 uniform float uFlux;
 uniform vec3 uSunObj;
 uniform float uMode;
+uniform float uBlank;   // 1: слой Layout ещё грузится — сфера чёрная
 uniform float uGrid;
 uniform vec4 uHome;   // lon0, lon1, lat0, lat1 домашнего сектора
 uniform vec4 uCell;   // lon0, lon1, lat0, lat1 (градусы) подсвеченного сектора
@@ -326,6 +327,7 @@ void main(){
     T = clamp(T, 148.0, 318.0);
     albedo = texture2D(uRampT, vec2(clamp((T - 140.0) / 175.0, 0.0, 1.0), 0.5)).rgb;
   }
+  if(uBlank > 0.5) albedo = vec3(0.0);
   albedo = pow(albedo, vec3(2.2));
 
   // sun: terminator from the sphere, relief shadows by marching the height map

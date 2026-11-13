@@ -1,0 +1,75 @@
+/* Левая панель «Markers»: кнопка, выпадающая панель и заголовки разделов.
+   Содержимое каждого раздела — в своём файле: markers/<раздел>.css */
+.side {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  top: calc(max(16px, env(safe-area-inset-top, 0px)) + 56px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-height: calc(100% - 230px);
+  min-height: 0;
+  --side-ink: #14224d;
+  --side-muted: #5a6891;
+  --side-accent: #ff6a3a;
+}
+
+.chip.side-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 20px;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--side-ink);
+  background: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 255, 255, 0.18);
+  backdrop-filter: none;
+}
+
+.chip.side-toggle:hover { background: #fff4ec; border-color: #ffd2b8; }
+.chip.side-toggle svg:first-child { color: var(--side-accent); }
+
+.side-chev {
+  flex: none;
+  transition: transform 0.2s ease;
+}
+
+.side-toggle[aria-expanded="true"] .side-chev,
+.side-head[aria-expanded="true"] .side-chev {
+  transform: rotate(180deg);
+}
+
+.side-panel {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 32px));
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 18px;
+  color: var(--side-ink);
+  background: #fff;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 14px;
+  cursor: pointer;
+  font: 600 17px/1.2 var(--font-display);
+  color: var(--side-ink);
+  background: #f1f4fb;
+  border: 0;
+  border-radius: 12px;
+}
+
+.side-head:hover { background: #e6ebf7; }
+.side-head:focus-visible, .poi:focus-visible, .side-toggle:focus-visible { outline: 3px solid var(--side-accent); outline-offset: 2px; }

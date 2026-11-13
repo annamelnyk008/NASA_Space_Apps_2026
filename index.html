@@ -6,6 +6,8 @@
   <link rel="stylesheet" href="styles/mars-tag.css">
   <link rel="stylesheet" href="styles/loading.css">
   <link rel="stylesheet" href="styles/mars-ui.css">
+  <link rel="stylesheet" href="styles/markers/panel.css">
+  <link rel="stylesheet" href="styles/markers/places.css">
   <link rel="stylesheet" href="styles/labels.css">
   <link rel="stylesheet" href="styles/pegman.css">
   <link rel="stylesheet" href="styles/surface.css">
@@ -83,6 +85,18 @@
       </div>
     </div>
   </div>
+  <aside id="side" class="side">
+    <button type="button" id="side-toggle" class="chip side-toggle" aria-expanded="false" aria-controls="side-panel">
+      <svg viewBox="0 0 24 32" width="17" height="22" fill="currentColor" aria-hidden="true"><path d="M12 1C6 1 1.5 5.6 1.5 11.4 1.5 19 12 31 12 31s10.5-12 10.5-19.6C22.5 5.6 18 1 12 1zm0 15a4.6 4.6 0 1 1 0-9.2 4.6 4.6 0 0 1 0 9.2z"/></svg>Markers<svg class="side-chev" viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+    </button>
+    <div id="side-panel" class="side-panel" hidden>
+      <section class="side-sec">
+        <button type="button" class="side-head" aria-expanded="false" aria-controls="poi-list">Places of interest<svg class="side-chev" viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg></button>
+        <ul id="poi-list" class="poi-list" hidden></ul>
+      </section>
+    </div>
+  </aside>
+  <div id="ov-loading" role="status" hidden><i aria-hidden="true"></i>Loading…</div>
   <div id="mars-labels"></div>
 </div>
 
