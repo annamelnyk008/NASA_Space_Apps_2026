@@ -37,8 +37,7 @@ export function setupInput(ctx) {
     btnGrid,
     getSurf,
     getFlatOn,
-    flatView, // createFlatView result
-    setRenderDirty
+    flatView // createFlatView result
   } = ctx;
 
   const cv = renderer.domElement;

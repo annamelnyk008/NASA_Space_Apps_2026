@@ -1,5 +1,4 @@
 // mars/update.js — покадровая логика подробного Марса (updateMars)
-import { THREE } from '../core/three.js';
 import { D2R } from '../config.js';
 import { angDiff } from '../lib/math.js';
 

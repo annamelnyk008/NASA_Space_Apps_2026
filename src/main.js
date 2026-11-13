@@ -119,6 +119,7 @@ import { setupInput } from './app/input.js';
 
   // marsHintText — общее значение, модули читают/пишут через get/set
   let marsHintText = ui.marsHint ? ui.marsHint.textContent : '';
+  const marsHintInitial = marsHintText;   // подсказка по умолчанию — к ней возвращаемся с плоской карты
   const getMarsHintText = () => marsHintText;
   const setMarsHintText = (t) => { marsHintText = t; };
 
@@ -396,8 +397,8 @@ import { setupInput } from './app/input.js';
     clearPressed: () => controls.clearPressed(),
     setViewMode: (m) => controls.setViewMode(m),
     setGrid: (on) => controls.setGrid(on),
-    viewMode: controls.getViewMode(),
-    gridOn: controls.getGridOn(),
+    getViewMode: () => controls.getViewMode(),
+    getGridOn: () => controls.getGridOn(),
     updateSun: () => marsSun.update(),
     resetMarsView: (init) => controls.resetMarsView(init),
     updateReadout: () => controls.updateReadout(),
@@ -446,6 +447,9 @@ import { setupInput } from './app/input.js';
     marsHint: ui.marsHint,
     getMarsHintText,
     setMarsHintText,
+    marsHintInitial,
+    getPegArmed: () => peg.getPegArmed(),
+    getHomeArmed: () => home.getHomeArmed(),
     btnView: ui.btnView,
     renderer,
     getMarsCam: () => marsCam,
@@ -494,13 +498,7 @@ import { setupInput } from './app/input.js';
     starMat.uniforms.uTime.value = time;
 
     if (state.mode === 'mars') {
-      state.uiTimer.v += 0;                     // updateMars сам вычитает
       const flatOn = flatView.getFlatOn();
-      const busy = state.renderDirty || mv.dragging || mv.fly ||
-        Math.abs(mv.dist - mv.tDist) > 0.002 ||
-        Math.abs(mv.vSpin) > 0.01 || Math.abs(mv.vPitch) > 0.01 ||
-        state.transitioning;
-      if (!busy && state.uiTimer.v < 0.034) { /* throttle 30fps */ }
       if (flatOn) flatView.prepFlat(dt);
       updateMars(dt, updateCtx);
       if (flatOn) flatView.updateFlat();

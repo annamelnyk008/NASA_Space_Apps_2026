@@ -26,8 +26,8 @@ export function createMarsTransitions(ctx) {
     clearPressed,
     setViewMode,
     setGrid,
-    viewMode,
-    gridOn,
+    getViewMode,
+    getGridOn,
     updateSun,
     resetMarsView,
     updateReadout,
@@ -54,8 +54,8 @@ export function createMarsTransitions(ctx) {
       tag.hidden = true;
       marsUI.hidden = false;
       clearPressed();
-      setViewMode(viewMode);
-      setGrid(gridOn);
+      setViewMode(getViewMode());
+      setGrid(getGridOn());
       renderer.setPixelRatio(Math.min(BASE_PR, 1.25));
       resize();
       updateSun();

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 
 // Заменяет server.py: на localhost код ходит за тайлами на '/trek/...',
 // а прокси перенаправляет это на NASA Mars Trek.
-// (См. var TREK в src/legacy/app.js — вне localhost используется прямой URL NASA.)
+// (См. var TREK в src/data/tiles.js — вне localhost используется прямой URL NASA.)
 const trekProxy = {
   '/trek': {
     target: 'https://trek.nasa.gov',

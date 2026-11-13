@@ -37,8 +37,7 @@ export function createSurfaceController(deps) {
     surfHudApi,   // createSurfHud result
     marsBack,
     getRenderDirty,
-    setRenderDirty,
-    onDirty
+    setRenderDirty
   } = deps;
 
   const surf = {
