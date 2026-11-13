@@ -1,0 +1,82 @@
+#mars-tag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  margin: 0;
+  z-index: 10;
+  user-select: none;
+
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  will-change: transform, opacity;
+}
+
+.tag-pill {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  background: var(--tag-fill);
+  border: 1px solid var(--tag-edge);
+  border-radius: 999px;
+  padding: 4px 18px 5px;
+  font-size: 20px;
+  line-height: 1.2;
+  text-shadow: 0 0 12px rgba(150, 185, 255, 0.8);
+  box-shadow: 0 0 18px rgba(120, 160, 255, 0.25);
+  backdrop-filter: blur(4px);
+  display: block;
+  text-align: center
+}
+
+.tag-arrow {
+  display: block;
+  width: 24px;
+  height: 32px;
+  margin-top: 4px;
+  margin-left: auto;
+  margin-right: auto;
+  flex-shrink: 0;
+  color: var(--ink);
+  filter: drop-shadow(0 0 6px rgba(160, 190, 255, 0.7));
+  animation: bob 1.6s ease-in-out infinite;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-arrow { animation: none; }
+}
+
+.tag-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+
+.tag-btn:hover .tag-pill {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: #fff;
+}
+
+.tag-btn:focus-visible {
+  outline: none;
+}
+
+.tag-btn:focus-visible .tag-pill {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}

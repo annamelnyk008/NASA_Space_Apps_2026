@@ -1,17 +1,25 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Солнечная система</title>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Солнечная система</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&display=swap">
   <link rel="stylesheet" href="styles/variables.css">
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/mars-tag.css">
   <link rel="stylesheet" href="styles/loading.css">
   <link rel="stylesheet" href="styles/mars-ui.css">
+  <link rel="stylesheet" href="styles/markers/panel.css">
+  <link rel="stylesheet" href="styles/markers/places.css">
   <link rel="stylesheet" href="styles/labels.css">
   <link rel="stylesheet" href="styles/pegman.css">
   <link rel="stylesheet" href="styles/surface.css">
+</head>
+<body>
 <div id="stage" role="img" aria-label="Анимированная 3D-модель солнечной системы: Солнце, восемь планет и пояс астероидов"></div>
 
-<button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model" class="tag-btn fixed left-0 top-0 z-10 flex flex-col items-center select-none" style="pointer-events:none">
+<button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model" class="tag-btn" style="pointer-events:none">
   <span class="tag-pill">Discover</span>
   <svg class="tag-arrow" viewBox="0 0 24 32" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M12 3v23M4.5 18.5 12 27l7.5-8.5"/>
@@ -191,8 +199,6 @@
 
 <div id="fallback" hidden>Не удалось запустить WebGL. Откройте страницу в браузере с поддержкой WebGL.</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script src="js/app.js"></script>
-
-</body></html>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

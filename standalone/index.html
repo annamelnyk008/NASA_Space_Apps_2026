@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mars Explorer</title>
+
+  <link rel="stylesheet" href="./styles/variables.css">
+  <link rel="stylesheet" href="./styles/base.css">
+  <link rel="stylesheet" href="./styles/mars-tag.css">
+  <link rel="stylesheet" href="./styles/loading.css">
+  <link rel="stylesheet" href="./styles/mars-ui.css">
+  <link rel="stylesheet" href="./styles/markers/panel.css">
+  <link rel="stylesheet" href="./styles/markers/places.css">
+  <link rel="stylesheet" href="./styles/labels.css">
+  <link rel="stylesheet" href="./styles/pegman.css">
+  <link rel="stylesheet" href="./styles/surface.css">
+</head>
+<body>
+  <div id="stage" role="img" aria-label="Анимированная 3D-модель солнечной системы: Солнце, восемь планет и пояс астероидов"></div>
+
+<button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model"
+  class="tag-btn fixed left-0 top-0 z-10 flex flex-col items-center select-none"
+  style="pointer-events:none; transform: translateX(-100px)">
+  <span class="tag-pill">Discover</span>
+  <svg class="tag-arrow" viewBox="0 0 24 32" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 3v23M4.5 18.5 12 27l7.5-8.5"/>
+  </svg>
+</button>
+
+<div id="mars-ui" hidden>
+  <div class="mu-top">
+    <button id="mars-back" type="button" class="chip">&larr; Solar system</button>
+    <div class="mu-status">
+      <p class="mu-hint">Drag to rotate &middot; scroll or pinch to zoom &middot; drag the Explorer onto the planet to stand there</p>
+      <p class="mu-line" id="mars-sun"></p>
+      <p class="mu-line" id="mars-sector"></p>
+      <p class="mu-line mu-home" id="mars-home" hidden></p>
+      <p class="mu-line" id="mars-lod"></p>
+    </div>
+  </div>
+  <div class="mu-bottom">
+    <section class="mu-info" aria-label="About Mars">
+      <p class="mu-eyebrow">Fourth planet from the Sun</p>
+      <h2 class="mu-title">Mars</h2>
+      <dl class="mu-facts">
+        <div><dt>Diameter</dt><dd>6,779 km</dd></div>
+        <div><dt>Day</dt><dd>24 h 37 min</dd></div>
+        <div><dt>Gravity</dt><dd>3.7 m/s&sup2;</dd></div>
+        <div><dt>Moons</dt><dd>Phobos, Deimos</dd></div>
+      </dl>
+      <nav class="mu-nav" id="mars-nav" aria-label="Places on Mars">
+        <button type="button" class="chip" aria-pressed="false" data-lon="-134" data-lat="18.6" data-dist="1.9">Olympus Mons</button>
+        <button type="button" class="chip" aria-pressed="false" data-lon="-59" data-lat="-12" data-dist="2.6">Valles Marineris</button>
+        <button type="button" class="chip" aria-pressed="false" data-lon="70" data-lat="-42" data-dist="2.7">Hellas Basin</button>
+        <button type="button" class="chip" aria-pressed="false" data-lon="0" data-lat="80" data-dist="2.8">North pole</button>
+        <button type="button" class="chip" aria-pressed="false" data-reset="1">Whole planet</button>
+      </nav>
+    </section>
+    <div class="legend" id="legend" hidden>
+      <p class="legend-title">Elevation above the Mars datum, km</p>
+      <div class="legend-bar" id="legend-bar"></div>
+      <div class="legend-ticks" id="legend-ticks"></div>
+    </div>
+    <div class="mu-tools">
+      <div class="mu-menu">
+        <div id="layout-pop" class="pop" role="menu" hidden>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="true" data-mode="0"><span class="sw sw-nat"></span>Natural colour</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="1"><span class="sw sw-elev"></span>Elevation (MOLA)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="2"><span class="sw sw-temp"></span>Temperature (modelled, live)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="3"><span class="sw sw-rough"></span>Roughness (MOLA)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="4"><span class="sw sw-dust"></span>Global dust (TES)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="5"><span class="sw sw-plag"></span>Plagioclase abundance (TES)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="6"><span class="sw sw-glass"></span>Sheet silicates / high-Si glass (TES)</button>
+          <button type="button" class="opt" role="menuitemradio" aria-checked="false" data-mode="7"><span class="sw sw-tin"></span>Thermal inertia (TES)</button>
+        </div>
+        <button type="button" id="btn-peg" class="chip tool peg" aria-pressed="false" title="Drag onto the planet, or click and then click a spot">
+          <svg viewBox="0 0 24 32" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7" r="5"/><path d="M4 30c0-9 2.5-15 8-15s8 6 8 15z"/></svg>Explorer
+        </button>
+        <button type="button" id="btn-home" class="chip tool peg" aria-pressed="false" title="Choose your home sector">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h5v-6h3v6h5V10"/></svg>Home
+        </button>
+        <button type="button" id="btn-view" class="view-switch" role="switch" aria-checked="false" aria-label="Map view: 3D globe or flat map" title="Switch between the 3D globe and a flat map">
+          <span class="vs-knob" aria-hidden="true"></span>
+          <span class="vs-opt">Globe</span><span class="vs-opt">Map</span>
+        </button>
+        <button type="button" id="btn-layout" class="chip tool" aria-haspopup="menu" aria-expanded="false">Layout</button>
+        <button type="button" id="btn-grid" class="chip tool" aria-pressed="false">Grid</button>
+      </div>
+      <div class="zoom">
+        <button type="button" id="zoom-in" class="sq" aria-label="Zoom in">+</button>
+        <button type="button" id="zoom-out" class="sq" aria-label="Zoom out">&minus;</button>
+      </div>
+    </div>
+  </div>
+  <aside id="side" class="side">
+    <button type="button" id="side-toggle" class="chip side-toggle" aria-expanded="false" aria-controls="side-panel">
+      <svg viewBox="0 0 24 32" width="17" height="22" fill="currentColor" aria-hidden="true"><path d="M12 1C6 1 1.5 5.6 1.5 11.4 1.5 19 12 31 12 31s10.5-12 10.5-19.6C22.5 5.6 18 1 12 1zm0 15a4.6 4.6 0 1 1 0-9.2 4.6 4.6 0 0 1 0 9.2z"/></svg>Markers<svg class="side-chev" viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+    </button>
+    <div id="side-panel" class="side-panel" hidden>
+      <section class="side-sec">
+        <button type="button" class="side-head" aria-expanded="false" aria-controls="poi-list">Places of interest<svg class="side-chev" viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg></button>
+        <ul id="poi-list" class="poi-list" hidden></ul>
+      </section>
+    </div>
+  </aside>
+  <div id="ov-loading" role="status" hidden><i aria-hidden="true"></i>Loading…</div>
+  <div id="mars-labels"></div>
+</div>
+
+<div id="surf-ui" hidden>
+  <div class="su-top">
+    <button id="surf-back" type="button" class="chip">&larr; Back to Mars</button>
+    <div class="mu-status su-status">
+      <p class="mu-line" id="surf-loc"></p>
+      <p class="mu-line" id="surf-sun"></p>
+      <p class="mu-line mu-home" id="surf-home" hidden></p>
+      <p class="mu-line" id="surf-hint">Drag to look around &middot; scroll to zoom</p>
+    </div>
+  </div>
+  <div id="rose" aria-hidden="true">
+    <svg viewBox="0 0 200 200" width="100%" height="100%">
+      <defs>
+        <radialGradient id="rz-bg" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#0a1538" stop-opacity="0.35"/><stop offset="0.8" stop-color="#081030" stop-opacity="0.7"/><stop offset="1" stop-color="#0c1a44" stop-opacity="0.85"/>
+        </radialGradient>
+        <linearGradient id="rz-arc" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffb27d"/><stop offset="1" stop-color="#ff7a45"/>
+        </linearGradient>
+      </defs>
+      <circle cx="100" cy="100" r="96" fill="url(#rz-bg)" stroke="#fff" stroke-opacity="0.3" stroke-width="1.5"/>
+      <circle cx="100" cy="100" r="90" fill="none" stroke="#9fc0ff" stroke-opacity="0.18" stroke-width="1"/>
+      <g id="cp-card">
+        <circle cx="100" cy="100" r="86" fill="none" stroke="#dfe9ff" stroke-opacity="0.75" stroke-width="5" stroke-dasharray="0.8 14.9"/>
+        <circle cx="100" cy="100" r="83" fill="none" stroke="#dfe9ff" stroke-opacity="0.4" stroke-width="2" stroke-dasharray="0.6 2.9"/>
+        <path d="M100 100 L100 56 M100 100 L144 100 M100 100 L100 144 M100 100 L56 100" stroke="#9fc0ff" stroke-opacity="0.28" stroke-width="1"/>
+        <circle cx="100" cy="100" r="44" fill="none" stroke="#9fc0ff" stroke-opacity="0.25" stroke-width="1" stroke-dasharray="2 4"/>
+        <path d="M100 52 L108 100 L100 92 L92 100 Z" fill="url(#rz-arc)"/>
+        <path d="M100 148 L106 100 L100 106 L94 100 Z" fill="#dfe9ff" fill-opacity="0.5"/>
+        <text x="100" y="35" text-anchor="middle" style="font-family:var(--font-display)" font-weight="700" font-size="20" fill="#ffb27d">N</text>
+        <text x="168" y="106" text-anchor="middle" style="font-family:var(--font-display)" font-weight="600" font-size="15" fill="#dfe9ff">E</text>
+        <text x="100" y="178" text-anchor="middle" style="font-family:var(--font-display)" font-weight="600" font-size="15" fill="#dfe9ff">S</text>
+        <text x="32" y="106" text-anchor="middle" style="font-family:var(--font-display)" font-weight="600" font-size="15" fill="#dfe9ff">W</text>
+      </g>
+      <path d="M100 5 L107 19 L100 15 L93 19 Z" fill="#ff8a5c" stroke="#fff" stroke-opacity="0.8" stroke-width="0.8"/>
+      <circle cx="100" cy="100" r="3.5" fill="#fff"/>
+      <circle cx="100" cy="100" r="8" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="1"/>
+    </svg>
+    <div class="rose-read" id="cp-read">N 0°</div>
+  </div>
+  <div class="su-bottom">
+    <section class="su-card" aria-label="Local time on Mars">
+      <p class="mu-eyebrow" id="surf-phase">Day</p>
+      <h2 class="su-time" id="surf-time">12:00</h2>
+      <p class="su-sub" id="surf-sub"></p>
+    </section>
+    <div class="zoom">
+      <button type="button" id="surf-zin" class="sq" aria-label="Zoom in">+</button>
+      <button type="button" id="surf-zout" class="sq" aria-label="Zoom out">&minus;</button>
+    </div>
+  </div>
+</div>
+
+<div id="land-pin" hidden>
+  <svg class="lp-pin" viewBox="0 0 24 34" aria-hidden="true"><path d="M12 1C5.9 1 1 5.8 1 11.8 1 20 12 33 12 33s11-13 11-21.2C23 5.8 18.1 1 12 1z" fill="#ea4335" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11.8" r="4.3" fill="#7a1a12"/></svg>
+  <div class="lp-card">
+    <canvas id="lp-view" width="288" height="162"></canvas>
+    <p class="lp-title" id="lp-title"></p>
+    <p class="lp-sub" id="lp-sub"></p>
+    <div class="lp-btns">
+      <button type="button" id="lp-go" class="chip lp-go">Land here</button>
+      <button type="button" id="lp-cancel" class="chip">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="peg-ghost" hidden><svg viewBox="0 0 28 40" fill="currentColor" aria-hidden="true"><ellipse cx="14" cy="38" rx="8" ry="2" fill="rgba(0,0,0,.35)"/><circle cx="14" cy="9" r="6.5"/><path d="M3 37c0-12 3.5-20 11-20s11 8 11 20z"/></svg></div>
+
+<div id="veil">
+  <div class="ld" aria-live="polite">
+    <svg class="ld-astro" viewBox="0 0 120 150" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <g stroke="#dfe9ff" stroke-width="3">
+        <path d="M44 96 C26 92 18 108 26 124" stroke-width="6"/>
+        <path d="M76 96 C94 92 102 80 98 66" stroke-width="6"/>
+        <rect x="40" y="82" width="40" height="42" rx="12" fill="#0c1a44"/>
+        <rect x="49" y="94" width="22" height="14" rx="4" stroke="#ff8a5c" stroke-width="2"/>
+        <path d="M48 124 L44 144 M72 124 L76 144" stroke-width="7"/>
+        <circle cx="60" cy="46" r="30" fill="#0c1a44"/>
+        <path d="M38 46 A22 22 0 0 1 82 46 A22 20 0 0 1 38 46 Z" fill="#12306e" stroke="#9fc0ff" stroke-width="2.5"/>
+        <path d="M46 40 Q52 33 60 33" stroke="#fff" stroke-opacity="0.7" stroke-width="2.5"/>
+      </g>
+      <path d="M98 66 L110 54" stroke="#ff8a5c" stroke-width="3"/>
+      <path d="M110 54 L110 38 L124 46 Z" fill="#ff8a5c" stroke="none"/>
+    </svg>
+    <p class="ld-kicker">Preparing your landing site</p>
+    <div class="ld-bar"><i></i></div>
+    <p class="ld-fact-h">Did you know?</p>
+    <p class="ld-fact" id="ld-fact"></p>
+  </div>
+</div>
+
+<div id="fallback" hidden>Не удалось запустить WebGL. Откройте страницу в браузере с поддержкой WebGL.</div>
+
+  <script src="./mars-explorer.js"></script>
+</body>
+</html>
