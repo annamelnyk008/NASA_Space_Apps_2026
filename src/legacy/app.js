@@ -8,7 +8,7 @@ import { createLegend, makeRampTexture } from '../mars/legend.js';
 import { D2R, DET_PAD, DET_TOT, DET_WIN, EXAG, FIT_RADIUS, FLAT_D0, FLAT_K, FLAT_S_MIN, FOV, GEO_SIZES, H_HI, H_LO, MAX_GEO, PANO_MIN_FOV, TILT_DEG } from '../config.js';
 import { ELEV_RAMP, rampFrom } from '../data/colorRamps.js';
 import { marsSolar, sunFor } from '../data/marsSolar.js';
-import { PH_HEIGHT, buildMosaic, canvasTex } from '../data/mosaic.js';
+import { buildMosaic, canvasTex } from '../data/mosaic.js';
 import { SPACE_FACTS } from '../data/spaceFacts.js';
 import { TILES, TS, overlay } from '../data/tiles.js';
 import { fmtClock, fmtLonLat, lonText, pad2 } from '../lib/format.js';
@@ -24,6 +24,8 @@ import { createMarsMaterials } from '../mars/materials.js';
 import { createGeo } from '../mars/geo.js';
 import { createLabels } from '../mars/labels.js';
 import { createElev } from '../mars/elev.js';
+import { createTextures } from '../mars/textures.js';
+import { createTiles } from '../mars/tiles.js';
 
 
 (function () {
@@ -145,150 +147,43 @@ import { createElev } from '../mars/elev.js';
     renderer,
     getMarsMat: function () { return marsMat; },
     getViewMode: function () { return viewMode; },
-    getTexCur: function () { return texCur; },
-    getTileCur: function () { return tileCur; },
-    getTexLv: function () { return texLv; },
-    getLevels: function () { return LEVELS; },
+    getTexCur: function () { return tex.state.texCur; },
+    getTileCur: function () { return tiles.state.tileCur; },
+    getTexLv: function () { return tex.texLv; },
+    getLevels: function () { return tex.LEVELS; },
     onDirty: function () { renderDirty = true; }
   });
+
+  var tex = createTextures({
+  renderer,
+  getMarsMat: function () { return marsMat; },
+  getDist: function () { return mv.dist; },
+  onLodChange: function () { updateLodText(); },
+  onSyncElev: function () { elev.syncElev(); }
+});
+
+var tiles = createTiles({
+  renderer,
+  HEAVY,
+  getMarsMat: function () { return marsMat; },
+  getEachSM: function () { return eachSM; },
+  onLodChange: function () { updateLodText(); },
+  onSyncElev: function () { elev.syncElev(); },
+  onDirty: function () { renderDirty = true; }
+});
 
 
   function updateSun() { marsSun.update(); }
   updateSun();
 
 
-  // ---- Глобальные карты: уровни z = 0, 1, 2 (2 тайла → 8 → 32), собираются в одну текстуру ----
-  // Вся планета = LOD 1 (zoom 1: 2 ряда × 4 колонки = 8 тайлов). Каждое «+» — следующий LOD:
-  // LOD 2 = 4×8 (zoom 2), LOD 3 = 8×16 (zoom 3), дальше окно из тайлов zoom 4, 5, 6, 7…
-  // zoom z → 2^z рядов × 2^(z+1) колонок.
-  // ---- Высоты: вшиты прямо в этот файл (2048×1024, 16 бит в PNG: R = старший байт, G = младший; км = (R*256+G)/65535*31 − 9) ----
-  // Крупный рельеф всего Марса (≈10 км/px, по MOLA 463 м); мелкие детали даёт только текстура цвета. Отдельных файлов и LOD для высот нет.
-  var H_EMBED_SRC = 'assets/mars-height.png';
-  var H_W = 2048, H_H = 1024, heightP = null;
-  function getHeightTex() {
-    if (!heightP) heightP = new Promise(function (resolve) {
-      var im = new Image();
-      function finish(t) { t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; resolve(t); }
-      im.onload = function () { finish(new THREE.Texture(im)); };
-      im.onerror = function () { var c = document.createElement('canvas'); c.width = c.height = 2; var g = c.getContext('2d'); g.fillStyle = PH_HEIGHT; g.fillRect(0, 0, 2, 2); finish(new THREE.CanvasTexture(c)); };
-      im.src = H_EMBED_SRC;
-    });
-    return heightP;
-  }
-  var LEVELS = [1, 2, 3].map(function (z) {
-    return { name: 'LOD ' + z + ' (' + Math.pow(2, z) + '×' + Math.pow(2, z + 1) + ')', z: z, w: Math.pow(2, z + 1) * TS, h: Math.pow(2, z) * TS };
-  });
-  var MAX_LEVEL = HEAVY ? 2 : 1;
-  var texLv = LEVELS.map(function () { return { state: 0, color: null, height: null, ev: {}, promise: null }; });
-  var texCur = -1;
-
-  function requestLevel(i) {
-    if (i > MAX_LEVEL) return Promise.resolve(false);
-    var L = texLv[i];
-    if (L.state === 2) return Promise.resolve(true);
-    if (L.state === 1 || L.state === 3) return L.promise || Promise.resolve(false);
-    L.state = 1;
-    var maxA = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-    var z = LEVELS[i].z, w = LEVELS[i].w, h = LEVELS[i].h;
-    L.promise = Promise.all([buildMosaic('color', z, 0, 0, w, h), getHeightTex()]).then(function (r) {
-      L.color = canvasTex(r[0], false, true, maxA);
-      L.height = r[1];
-      L.state = 2;
-      return true;
-    });
-    return L.promise;
-  }
-
-  var TILE_MAX = HEAVY ? 5 : 2;
-  var tiles = {};          // key -> { state, h, c, t, z, ox, oy, cx, cy, promise }
-  var tileCur = null, tileWant = null;
-  function tileLoadWin(z, lonDeg, latDeg) {
-    var Wz = Math.pow(2, z + 1) * TS, Hz = Math.pow(2, z) * TS;
-    var cx = (lonDeg + 180) / 360 * Wz, cy = (90 - latDeg) / 180 * Hz;
-    // окно центрируется на наблюдателе, шаг сетки 256 px (чтобы не перезагружать при малых сдвигах)
-    var ox = Math.max(0, Math.min(Wz - DET_WIN, Math.round((cx - DET_WIN / 2) / 256) * 256));
-    var oy = Math.max(0, Math.min(Hz - DET_WIN, Math.round((cy - DET_WIN / 2) / 256) * 256));
-    var key = z + '_' + ox + '_' + oy, T = tiles[key];
-    if (T) { T.t = performance.now(); return T; }
-    T = tiles[key] = { state: 1, h: null, c: null, t: performance.now(), z: z, ox: ox, oy: oy, cx: cx, cy: cy, key: key, Wz: Wz, Hz: Hz };
-    var maxA = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
-    var gx0 = ox - DET_PAD, gy0 = oy - DET_PAD;
-    T.promise = Promise.all([buildMosaic('color', z, gx0, gy0, DET_TOT, DET_TOT)]).then(function (r) {
-      T.c = canvasTex(r[0], false, false, maxA);
-      T.h = null;
-      T.ev = {};
-      T.state = 2;
-      var keys = Object.keys(tiles).filter(function (k) { return tiles[k].state === 2 && tiles[k] !== tileCur; });
-      if (keys.length > TILE_MAX) {
-        keys.sort(function (a, b) { return tiles[a].t - tiles[b].t; });
-        while (keys.length > TILE_MAX) {
-          var o = tiles[keys.shift()];
-          if (o.h) o.h.dispose(); if (o.c) o.c.dispose(); for (var kk in o.ev) if (o.ev[kk].tex) o.ev[kk].tex.dispose();
-          delete tiles[o.key];
-        }
-      }
-      return true;
-    });
-    return T;
-  }
-  function applyDetail(T) {
-    tileCur = T || null;
-    function setOn(u) {
-      if (T) {
-        u.uDetC.value = T.c;
-        // прямоугольник окна в UV (v отсчитывается снизу вверх)
-        u.uDetRect.value.set(T.ox / T.Wz, 1 - (T.oy + DET_WIN) / T.Hz, DET_WIN / T.Wz, DET_WIN / T.Hz);
-        u.uDetOn.value = 1;
-      } else { u.uDetOn.value = 0; }
-    }
-    setOn(marsMat.uniforms);
-    if (typeof eachSM === 'function') { try { eachSM(function (m) { setOn(m.uniforms); }); } catch (e) {} }
-    updateLodText();
-    elev.syncElev();
-    renderDirty = true;
-  }
-  // lonDeg/latDeg — точка, на которую смотрим; z — нужный уровень тайлов
-  function tileUpdate(lonDeg, latDeg, wantIt, z) {
-    if (!wantIt) { if (tileCur) applyDetail(null); return Promise.resolve(false); }
-    z = Math.max(0, Math.min(TILES.zMax, z === undefined ? 3 : z));
-    var Wz = Math.pow(2, z + 1) * TS, Hz = Math.pow(2, z) * TS;
-    var cx = (lonDeg + 180) / 360 * Wz, cy = (90 - latDeg) / 180 * Hz;
-    // текущее окно ещё годится: тот же уровень, точка в пределах центральной половины
-    if (tileCur && tileCur.z === z && Math.abs(cx - (tileCur.ox + DET_WIN / 2)) < 300 && Math.abs(cy - (tileCur.oy + DET_WIN / 2)) < 300) {
-      tileCur.t = performance.now(); return Promise.resolve(true);
-    }
-    var T = tileLoadWin(z, lonDeg, latDeg);
-    if (tileWant === T.key && T.state === 1) return T.promise;
-    tileWant = T.key;
-    return T.promise.then(function () {
-      if (tileWant !== T.key) return false;
-      applyDetail(T);
-      return true;
-    });
-  }
-  function desiredLevel(d) {
-    var want = d > 4.3 ? 0 : (d > 2.9 ? 1 : 2);
-    return Math.min(want, MAX_LEVEL);
-  }
-  function applyTexLevel() {
-    var want = desiredLevel(mv.dist), use = -1;
-    for (var i = want; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
-    if (use < 0 || use === texCur) return;
-    texCur = use;
-    var u = marsMat.uniforms;
-    u.uColor.value = texLv[use].color;
-    u.uHeight.value = texLv[use].height;
-    u.uRes.value.set(H_W, H_H);
-    updateLodText();
-    elev.syncElev();
-  }
   // ---- слой Layout (Elevation / Roughness / Dust …): строится лениво, только для активного режима ----
 
   function updateLodText() {
     if (!lodEl) return;
-    var lv = texCur >= 0 ? LEVELS[texCur].name : '…';
+    var lv = tex.state.texCur >= 0 ? tex.LEVELS[tex.state.texCur].name : '…';
     var g = geo.geoCur >= 0 ? GEO_SIZES[geo.geoCur][0] + '×' + GEO_SIZES[geo.geoCur][1] : '…';
-    lodEl.textContent = 'Detail level ' + (Math.max(texCur, 0) + 1) + ' · ' + lv + ' maps' + (tileCur ? ' + zoom ' + tileCur.z : '') + ' · mesh ' + g;
+    lodEl.textContent = 'Detail level ' + (Math.max(tex.state.texCur, 0) + 1) + ' · ' + lv + ' maps' + (tiles.state.tileCur ? ' + zoom ' + tiles.state.tileCur.z : '') + ' · mesh ' + g;
   }
 
   // ---- Сцена Марса ---------------------------------------------------------
@@ -403,11 +298,11 @@ import { createElev } from '../mars/elev.js';
     if (!on) labels.hideGridLabels();
   }
   function updateTiles() {
-    if (mv.dist > (tileCur ? 3.4 : 2.9) || texLv[MAX_LEVEL].state !== 2) { tileUpdate(0, 0, false); tileWant = null; return; }
+    if (mv.dist > (tiles.state.tileCur ? 3.4 : 2.9) || tex.texLv[tex.MAX_LEVEL].state !== 2) { tiles.tileUpdate(0, 0, false); tiles.state.tileWant = null; return; }
     marsSpin.getWorldQuaternion(tmpQ);
     tmpV.set(0, 0, 1).applyQuaternion(tmpQ.clone().invert());
     var zp = Math.min(TILES.zPlanetMax, TILES.zMax, 4 + (mv.dist < 1.8) + (mv.dist < 1.4) + (mv.dist < 1.2));
-    tileUpdate(Math.atan2(-tmpV.z, tmpV.x) / D2R, Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R, true, zp);
+    tiles.tileUpdate(Math.atan2(-tmpV.z, tmpV.x) / D2R, Math.asin(Math.max(-1, Math.min(1, tmpV.y))) / D2R, true, zp);
   }
   function updateSector(lonC, latC) {
     if (!gridOn) { sectorEl.textContent = ''; marsMat.uniforms.uCell.value.set(0, 0, 0, 0); return; }
@@ -476,9 +371,9 @@ import { createElev } from '../mars/elev.js';
     }
 
     // уровни детализации
-    if (mv.dist < 5.5) requestLevel(1).then(applyTexLevel);
-    if (mv.dist < 4.2) requestLevel(2).then(applyTexLevel);
-    applyTexLevel();
+    if (mv.dist < 5.5) tex.requestLevel(1).then(tex.applyTexLevel);
+    if (mv.dist < 4.2) tex.requestLevel(2).then(tex.applyTexLevel);
+    tex.applyTexLevel();
     geo.updateGeoLod();
 
     labels.updateLabels();
@@ -506,7 +401,7 @@ import { createElev } from '../mars/elev.js';
     veil.classList.add('on');
     wait(480).then(function () {
       if (!marsScene) buildMars();
-      return Promise.race([requestLevel(0), wait(8000).then(function () { return false; })]);
+      return Promise.race([tex.requestLevel(0), wait(8000).then(function () { return false; })]);
     }).then(function () {
       mode = 'mars';
       tag.hidden = true;
@@ -518,14 +413,14 @@ import { createElev } from '../mars/elev.js';
       resize();
       updateSun();
       resetMarsView(true);
-      texCur = -1;
-      applyTexLevel();
+      tex.state.texCur = -1;
+      tex.applyTexLevel();
       geo.updateGeoLod();
       updateReadout();
       renderer.compile(marsScene, marsCam);
       renderer.domElement.style.cursor = 'grab';
       // фоновая подгрузка более подробных уровней и сеток
-      requestLevel(1).then(applyTexLevel);
+      tex.requestLevel(1).then(tex.applyTexLevel);
       setTimeout(function () { geo.makeGeoMesh(1); geo.updateGeoLod(); }, 500);
       return wait(80);
     }).then(function () {
@@ -818,7 +713,7 @@ import { createElev } from '../mars/elev.js';
   var hCan = null;
   function siteHeightKm(lonDeg, latDeg) {
     try {
-      var L = texLv[0];
+      var L = tex.texLv[0];
       if (!L.height || !L.height.image) return null;
       if (!hCan) {
         var img = L.height.image;
@@ -895,14 +790,14 @@ import { createElev } from '../mars/elev.js';
   }
   function applySurfTex() {
     var use = -1;
-    for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
+    for (var i = tex.MAX_LEVEL; i >= 0; i--) { if (tex.texLv[i].state === 2) { use = i; break; } }
     if (use < 0) return;
     var key = use + (surfHeight ? 100 : 0);
     if (key === surf.tex) return;
     surf.tex = key;
-    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };   // нет сглаженной карты — берём обычную
+    var H = surfHeight || { tex: tex.texLv[use].height, w: tex.H_W, h: tex.H_H };   // нет сглаженной карты — берём обычную
     eachSM(function (m) {
-      m.uniforms.uColor.value = texLv[use].color;
+      m.uniforms.uColor.value = tex.texLv[use].color;
       m.uniforms.uHeight.value = H.tex;
       m.uniforms.uRes.value.set(H.w, H.h);
     });
@@ -1048,11 +943,11 @@ import { createElev } from '../mars/elev.js';
       renderer.setPixelRatio(Math.min(BASE_PR, 1.5));
       resize();
       renderer.domElement.style.cursor = 'grab';
-      return Promise.race([Promise.all([requestLevel(1), loadSurfHeight().then(function (h) { surfHeight = h; })]), wait(8000)]);
+      return Promise.race([Promise.all([tex.requestLevel(1), loadSurfHeight().then(function (h) { surfHeight = h; })]), wait(8000)]);
     }).then(function () {
       applySurfTex();
-      tileWant = null;
-      tileUpdate(0, 0, false);   // окно детализации в режиме человечка не используется
+      tiles.state.tileWant = null;
+      tiles.tileUpdate(0, 0, false);   // окно детализации в режиме человечка не используется
       return true;
     }).then(function () {
       surfSun();
@@ -1092,8 +987,8 @@ import { createElev } from '../mars/elev.js';
       clearPressed();
       renderer.setPixelRatio(Math.min(BASE_PR, 1.25));
       resize();
-      texCur = -1;
-      applyTexLevel();
+      tex.state.texCur = -1;
+      tex.applyTexLevel();
       geo.updateGeoLod();
       flyTo(lonDeg, latDeg, 2.3);
       renderer.domElement.style.cursor = 'grab';
@@ -1251,7 +1146,7 @@ import { createElev } from '../mars/elev.js';
     lpView.classList.add('wait');
     updateLandPin();
     var tk = ++lpToken;
-    Promise.race([Promise.all([requestLevel(1), loadSurfHeight()]), wait(8000)]).then(function (r) {
+    Promise.race([Promise.all([tex.requestLevel(1), loadSurfHeight()]), wait(8000)]).then(function (r) {
       if (r && r[1]) surfHeight = r[1];
       if (tk !== lpToken || !landPin || mode !== 'mars') return;
       return wait(30);
@@ -1264,15 +1159,15 @@ import { createElev } from '../mars/elev.js';
   function drawPreview(lonDeg, latDeg) {
     if (!surfScene) buildSurface();
     var use = -1;
-    for (var i = MAX_LEVEL; i >= 0; i--) { if (texLv[i].state === 2) { use = i; break; } }
+    for (var i = tex.MAX_LEVEL; i >= 0; i--) { if (tex.texLv[i].state === 2) { use = i; break; } }
     if (use < 0) return;
-    var H = surfHeight || { tex: texLv[use].height, w: H_W, h: H_H };
+    var H = surfHeight || { tex: tex.texLv[use].height, w: tex.H_W, h: tex.H_H };
     var lon = lonDeg * D2R, lat = Math.max(-1.52, Math.min(1.52, latDeg * D2R)), cl = Math.max(0.05, Math.cos(lat));
     var S = sunFor(lon, lat, 0);
     var alt = Math.asin(Math.max(-1, Math.min(1, S.sU))), az = Math.atan2(S.sE, S.sN);
     var W = lpView.width, Ht = lpView.height, th = Math.tan(35 * D2R);
     var u = surfMat.uniforms;
-    u.uColor.value = texLv[use].color; u.uHeight.value = H.tex; u.uRes.value.set(H.w, H.h);
+    u.uColor.value = tex.texLv[use].color; u.uHeight.value = H.tex; u.uRes.value.set(H.w, H.h);
     u.uObsLL.value.set(lon, lat);
     u.uSeed.value.set((lon * 3389.5 * cl) % 200, (lat * 3389.5) % 200);
     var bx = (lon / (2 * Math.PI) + 0.5) * H.w, by = (lat / Math.PI + 0.5) * H.h;
