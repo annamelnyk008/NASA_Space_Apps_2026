@@ -59,6 +59,10 @@ export function createTextures({ renderer, getMarsMat, getDist, onLodChange, onS
     u.uColor.value = texLv[use].color;
     u.uHeight.value = texLv[use].height;
     u.uRes.value.set(H_W, H_H);
+    
+    u.uDetOn.value = 0;
+    u.uDetRect.value.set(0, 0, 1, 1);
+
     onLodChange();
     onSyncElev();
   }
