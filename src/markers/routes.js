@@ -6,6 +6,7 @@ import { gridSpec, loadGrid, planRoute, difficulty, greatCircleKm, unwrapEnd } f
 
 const D2R = Math.PI / 180;
 const SVGNS = 'http://www.w3.org/2000/svg';
+const SURFACE_PLACES = PLACES.filter(function (p) { return !p.moon; });   // луны в маршрутах не участвуют
 const SOURCES = { height: 'detailed MOLA tiles', elevColor: 'NASA Mars Trek MOLA colour layer', embedded: 'built-in global height map' };
 
 // ---------- форматирование ----------
@@ -22,9 +23,9 @@ export function parsePoint(text) {
   const t = String(text || '').trim();
   if (!t) return null;
   const low = t.toLowerCase();
-  let pl = PLACES.filter(function (p) { return p.name.toLowerCase() === low; })[0];
+  let pl = SURFACE_PLACES.filter(function (p) { return p.name.toLowerCase() === low; })[0];
   if (!pl) {
-    const m = PLACES.filter(function (p) { return p.name.toLowerCase().indexOf(low) === 0; });
+    const m = SURFACE_PLACES.filter(function (p) { return p.name.toLowerCase().indexOf(low) === 0; });
     if (m.length === 1) pl = m[0];
   }
   if (pl) return { lon: pl.lon, lat: pl.lat, label: pl.name };
@@ -142,7 +143,7 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
   rows.appendChild(swap);
   form.appendChild(rows);
   const list = el('datalist'); list.id = 'rt-places';
-  PLACES.forEach(function (p) { const o = el('option'); o.value = p.name; list.appendChild(o); });
+  SURFACE_PLACES.forEach(function (p) { const o = el('option'); o.value = p.name; list.appendChild(o); });
   form.appendChild(list);
 
   const actions = el('div', 'rt-actions');

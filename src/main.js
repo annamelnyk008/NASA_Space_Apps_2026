@@ -265,6 +265,15 @@ import { setupInput } from './app/input.js';
         info: ui.placeInfo,
         getTransitioning: () => state.transitioning,
         flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        getMoonDirection: (name) => {
+          // текущее направление на луну в системе координат планеты (долгота/широта «под луной»)
+          const m = marsMoons.find((x) => x.def.name === name);
+          if (!m || !marsSpin) return null;
+          marsSpin.updateMatrixWorld(true);
+          const v = m.mesh.getWorldPosition(new THREE.Vector3()).applyMatrix4(new THREE.Matrix4().copy(marsSpin.matrixWorld).invert());
+          const len = v.length() || 1;
+          return { lon: Math.atan2(-v.z, v.x) * 180 / Math.PI, lat: Math.asin(Math.max(-1, Math.min(1, v.y / len))) * 180 / Math.PI };
+        },
         saveView: () => controls.saveView(),
         restoreView: () => controls.restoreView(),
         setHighlight: (p) => {

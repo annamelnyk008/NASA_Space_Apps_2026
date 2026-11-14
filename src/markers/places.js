@@ -43,7 +43,18 @@ export const PLACES = [
   { name: 'North pole', lon: 0, lat: 80, dist: 2.8, ring: 8.0,
     facts: [['Type', 'Polar ice cap'], ['Width', '~1,000 km'], ['Ice thickness', 'up to ~2\u20133 km'], ['Name', 'Planum Boreum']],
     info: ['A permanent cap of water ice with spiral troughs and layered deposits that record changes in the Martian climate.',
-      'In winter it is covered by an extra layer of frozen carbon dioxide that can be a metre thick, and it shrinks again in spring. NASA\u2019s Phoenix lander touched down on the nearby plains in 2008 and confirmed water ice just below the soil.'] }
+      'In winter it is covered by an extra layer of frozen carbon dioxide that can be a metre thick, and it shrinks again in spring. NASA\u2019s Phoenix lander touched down on the nearby plains in 2008 and confirmed water ice just below the soil.'] },
+  // Луны: не лежат на поверхности, поэтому без обводки; камера поворачивается к текущему положению луны (getMoonDirection)
+  { name: 'Phobos', moon: 'Phobos', dist: 3.6, coords: 'Inner moon \u00B7 orbits 9,376 km from the centre of Mars',
+    facts: [['Type', 'Moon of Mars'], ['Size', '27 \u00D7 22 \u00D7 18 km'], ['Orbit', 'every 7 h 39 min'], ['Discovered', '1877, Asaph Hall']],
+    info: ['A dark, potato-shaped lump of rock, possibly a captured asteroid or debris from an ancient impact. Its huge crater Stickney is about 9 km wide, a third of the moon\u2019s size.',
+      'Phobos orbits so close and so fast that it circles Mars about three times a day. From the surface it would rise in the west and set in the east. It is slowly spiralling inwards and in tens of millions of years it will break apart or hit Mars.',
+      'For explorers it is interesting as a possible waypoint: gravity there is tiny, and Japan\u2019s MMX mission plans to bring samples of Phobos back to Earth.'] },
+  { name: 'Deimos', moon: 'Deimos', dist: 4.6, coords: 'Outer moon \u00B7 orbits 23,460 km from the centre of Mars',
+    facts: [['Type', 'Moon of Mars'], ['Size', '15 \u00D7 12 \u00D7 11 km'], ['Orbit', 'every 30 h 18 min'], ['Discovered', '1877, Asaph Hall']],
+    info: ['A small, smooth-looking moon. Dust and loose rock have filled in many of its craters, so it looks softer than Phobos. It was found only six days after Phobos.',
+      'Deimos moves slowly across the Martian sky, taking about 2.7 days between rising and setting, and from the surface it would look like a bright star rather than a disc.',
+      'The names mean Fear (Phobos) and Terror or Dread (Deimos), the sons of the Greek god of war.'] }
 ];
 
 function fmtCoord(v, pos, neg) {
@@ -57,10 +68,11 @@ function fmtCoord(v, pos, neg) {
  * @param {function} deps.getTransitioning
  * @param {function} deps.flyTo           (lon, lat, dist)
  * @param {function} deps.setHighlight    (place | null) — обводка на планете
+ * @param {function} deps.getMoonDirection (name) → {lon, lat} | null — где сейчас луна над планетой
  * @param {function} deps.saveView        запомнить вид камеры перед первым переходом
  * @param {function} deps.restoreView     вернуться к запомненному виду
  */
-export function createPlacesSection({ list, info, getTransitioning, flyTo, setHighlight, saveView, restoreView }) {
+export function createPlacesSection({ list, info, getTransitioning, flyTo, setHighlight, saveView, restoreView, getMoonDirection }) {
   if (!list) return null;
 
   const buttons = [];
@@ -107,7 +119,7 @@ export function createPlacesSection({ list, info, getTransitioning, flyTo, setHi
     buttons.forEach(function (x, i) { x.setAttribute('aria-pressed', i === idx ? 'true' : 'false'); });
     if (el) {
       el.title.textContent = p.name;
-      el.coords.textContent = fmtCoord(p.lat, 'N', 'S') + ', ' + fmtCoord(p.lon, 'E', 'W');
+      el.coords.textContent = p.coords || (fmtCoord(p.lat, 'N', 'S') + ', ' + fmtCoord(p.lon, 'E', 'W'));
       el.text.textContent = '';
       p.info.forEach(function (t) {
         const para = document.createElement('p');
@@ -126,8 +138,11 @@ export function createPlacesSection({ list, info, getTransitioning, flyTo, setHi
       el.body.scrollTop = 0;
       info.hidden = false;
     }
-    if (setHighlight) setHighlight(p);
-    flyTo(p.lon, p.lat, p.dist);
+    if (setHighlight) setHighlight(p.moon ? null : p);
+    if (p.moon) {
+      const d = getMoonDirection && getMoonDirection(p.moon);
+      if (d) flyTo(d.lon, d.lat, p.dist);
+    } else flyTo(p.lon, p.lat, p.dist);
   }
 
   list.addEventListener('click', function (e) {
