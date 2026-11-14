@@ -328,16 +328,4 @@ The **Markers** panel (`markers/panel.js`) is a shell with accordion sections. E
 - **Panorama rendering is spread over frames**, so the interface stays responsive.
 - **Shader compilation is forced** (`renderer.compile`) behind the loading veil to avoid hitches on first display.
 
-## Known Issues and Technical Debt
-
-- **Duplicated GLSL.** `mars.frag` contains pasted copies of `noise.glsl` and `mars-common.glsl`, because `MARS_FRAG` is not prefixed with the shared code. The copies can drift apart.
-- **Possibly unused height-tile code.** `data/heightField.js`, the `height` entry in `TILES` and the `tiles/height/` pyramid are not used by the current texture path, which reads the PNGs in `assets/`. `tiles.js` also sets detail-window height to `null`, so `uDetHOn` stays 0.
-- **Temperature model exists twice:** on the GPU in `mars.frag` (albedo from the color map) and on the CPU in `mars/home.js` (fixed albedo 0.24).
-- **Production tile access.** Outside `localhost` the code requests NASA directly, which does not work without CORS headers or your own proxy (see [getting_started.md](getting_started.md)).
-- **Surface relief is coarse.** The surface height map is 1024 × 512 (about 21 km per texel), so the terrain shape is smooth and the apparent detail comes from color noise.
-- **Hard-coded size.** `mars/textures.js` sets the globe height map size to 2048 × 1024 in constants, while the surface view reads the size from the loaded image.
-- **Stale comments and CSS.** `surface-body.glsl` has comments about procedural color replacing NASA tiles, but the code still samples the color map. `surface.css` has styles for a text compass (`#compass`, `.cp-*`) and a time slider (`.su-ctl`, `#surf-slider`) that the current HTML does not use (it uses the SVG `#rose`).
-- **Mixed language and style.** `index.html` declares `lang="ru"`, has a Russian title and WebGL fallback message, but the interface is English. Older data files use `var` and promise chains; newer files use `const` and dependency injection.
-- **Leftover bridge.** `core/three-global.js` sets `window.THREE` for old code. It can be removed when no file depends on the global.
-
 See also: [Getting Started](getting_started.md),[Data sources](data-sources.md)
