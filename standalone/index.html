@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="./styles/markers/routes.css">
   <link rel="stylesheet" href="./styles/labels.css">
   <link rel="stylesheet" href="./styles/detail.css">
+  <link rel="stylesheet" href="./styles/sim.css">
   <link rel="stylesheet" href="./styles/pegman.css">
   <link rel="stylesheet" href="./styles/surface.css">
   <link rel="stylesheet" href="./styles/markers/marks.css">
@@ -90,6 +91,7 @@
           <span class="vs-knob" aria-hidden="true"></span>
           <span class="vs-opt">Globe</span><span class="vs-opt">Map</span>
         </button>
+        <button type="button" id="btn-sim" class="chip tool sim-btn" aria-pressed="false">Simulation</button>
         <button type="button" id="btn-layout" class="chip tool" aria-haspopup="menu" aria-expanded="false">Layout</button>
         <button type="button" id="btn-grid" class="chip tool" aria-pressed="false">Grid</button>
       </div>
@@ -137,7 +139,8 @@
 
 <div id="surf-ui" hidden>
   <div class="su-top">
-    <button id="surf-back" type="button" class="chip">&larr; Back to Mars</button>
+      <button id="surf-back" type="button" class="chip">&larr; Back to Mars</button>
+
     <div class="mu-status su-status">
       <p class="mu-line" id="surf-loc"></p>
       <p class="mu-line" id="surf-sun"></p>
@@ -204,6 +207,35 @@
 
 <div id="peg-ghost" hidden><svg viewBox="0 0 28 40" fill="currentColor" aria-hidden="true"><ellipse cx="14" cy="38" rx="8" ry="2" fill="rgba(0,0,0,.35)"/><circle cx="14" cy="9" r="6.5"/><path d="M3 37c0-12 3.5-20 11-20s11 8 11 20z"/></svg></div>
 
+<div id="sim-scene" hidden>
+  <canvas id="sim-canvas" aria-hidden="true"></canvas>
+  <div class="sim-top">
+    <button type="button" id="sim-back" class="chip">&larr; Back to Mars</button>
+    <div class="sim-modes" role="group" aria-label="Simulation scenario">
+      <button type="button" class="chip sim-mode" data-mode="day" aria-pressed="false">Day &amp; night</button>
+      <button type="button" class="chip sim-mode" data-mode="moons" aria-pressed="false">Phobos &amp; Deimos</button>
+      <button type="button" class="chip sim-mode" data-mode="quake" aria-pressed="false">Marsquake</button>
+      <button type="button" class="chip sim-mode" data-mode="storm" aria-pressed="false">Dust storm</button>
+    </div>
+    <button type="button" id="sim-sound" class="chip sim-sound" aria-pressed="true">Sound: on</button>
+  </div>
+  <div class="sim-bottom">
+    <div class="sim-card">
+      <div class="sim-line">
+        <p class="sim-title" id="sim-title">Choose a simulation</p>
+        <p class="sim-label" id="sim-label"></p>
+      </div>
+      <div class="sim-slider">
+        <span class="sim-end">0</span>
+        <input type="range" id="sim-level" min="0" max="10" step="1" value="0" disabled aria-label="Strength, 0 to 10">
+        <span class="sim-end">10</span>
+        <output id="sim-val" class="sim-val">0</output>
+      </div>
+      <dl class="sim-stats" id="sim-stats"></dl>
+      <p class="sim-note" id="sim-note"></p>
+    </div>
+  </div>
+</div>
 <div id="detail-fade" aria-hidden="true"></div>
 <div id="detail-msg" class="detail-msg" role="status" hidden></div>
 <button type="button" id="detail-exit" class="chip detail-exit" hidden>&larr; Exit detailed view</button>
