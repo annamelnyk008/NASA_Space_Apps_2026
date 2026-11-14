@@ -1,6 +1,12 @@
-// mars/home.js — домашний сектор
+// mars/home.js — домашняя точка (флажок). Раньше это был сектор 1°×1° (~60 км),
+// теперь — точная точка lon/lat; подсветка в шейдере сжата до маленького пятна вокруг неё.
+// Сам флажок и карточку с информацией рисует markers/flags.js.
 import { D2R } from '../config.js';
-import { lonText } from '../lib/format.js';
+import { fmtLonLatPrecise, fmtSigned } from '../lib/format.js';
+import { wrap180 } from '../lib/math.js';
+
+const HOME_BOX = 0.06;      // полуразмер подсветки в шейдере, °
+const CLEAR_DEG = 0.3;      // клик ближе этого к домашней точке — снимает её
 
 /**
  * @param {object} deps
@@ -15,7 +21,6 @@ export function createHome(deps) {
     surfHomeEl,
     marsHint,
     getMarsHintText,
-    setMarsHintText,
     getMode,
     getTransitioning,
     renderer,
@@ -23,22 +28,29 @@ export function createHome(deps) {
     setArmed,
     getPegArmed,
     pickMars,
-    onHomeChange // optional callback for renderDirty etc.
+    onHomeChange // optional callback for renderDirty, перерисовки флажков и т.п.
   } = deps;
 
   let home = null;
   let homeArmed = false;
-  let homeHCache = null;
 
+  // новый формат — точка; старый ('marsHome2') — сектор 1°, берём его центр
   try {
-    const hs = JSON.parse(localStorage.getItem('marsHome2') || 'null');
-    if (hs && isFinite(hs.lon) && isFinite(hs.lat)) home = { lon: hs.lon, lat: hs.lat };
+    const h3 = JSON.parse(localStorage.getItem('marsHome3') || 'null');
+    if (h3 && isFinite(h3.lon) && isFinite(h3.lat)) {
+      home = { lon: h3.lon, lat: h3.lat };
+    } else {
+      const h2 = JSON.parse(localStorage.getItem('marsHome2') || 'null');
+      if (h2 && isFinite(h2.lon) && isFinite(h2.lat)) home = { lon: h2.lon + 0.5, lat: h2.lat + 0.5 };
+    }
   } catch (e) { /* ignore */ }
 
-  function homeTemp() {
-    if (!home) return 0;
-    const lon = (home.lon + 0.5) * D2R;
-    const lat = (home.lat + 0.5) * D2R;
+  // ---- физика точки (используется и флажками) ----
+
+  /** Примерная температура поверхности в точке сейчас, °C */
+  function pointTemp(lonDeg, latDeg) {
+    const lon = lonDeg * D2R;
+    const lat = latDeg * D2R;
     const sl = Math.sin(lat);
     const cl = Math.cos(lat);
     const Nn = [cl * Math.cos(lon), sl, -cl * Math.sin(lon)];
@@ -65,49 +77,24 @@ export function createHome(deps) {
     return Math.max(148, Math.min(318, T)) - 273.15;
   }
 
-  function homeElev() {
-    if (!home) return null;
-    if (homeHCache && homeHCache.key === home.lon + ',' + home.lat) return homeHCache.v;
-    let sum = 0;
-    let n = 0;
-    for (let j = 0; j < 3; j++) {
-      for (let i = 0; i < 3; i++) {
-        const h = siteHeightKm(home.lon + (i + 0.5) / 3, home.lat + (j + 0.5) / 3);
-        if (h === null) return null;
-        sum += h;
-        n++;
-      }
-    }
-    homeHCache = { key: home.lon + ',' + home.lat, v: sum / n };
-    return homeHCache.v;
+  /** Высота точки, км (null — карта высот ещё не загружена) */
+  function pointElev(lonDeg, latDeg) {
+    return siteHeightKm(lonDeg, latDeg);
   }
+
+  const homeTemp = () => (home ? pointTemp(home.lon, home.lat) : 0);
+  const homeElev = () => (home ? pointElev(home.lon, home.lat) : null);
 
   function homeText() {
     if (!home) return '';
     const e = homeElev();
-    const t = homeTemp();
-    function sg(v, d) {
-      return (v < 0 ? '−' : v > 0 ? '+' : '') + Math.abs(v).toFixed(d);
-    }
-    const la0 = home.lat;
-    const la1 = home.lat + 1;
     return (
-      'Home sector ' +
-      lonText(home.lon) +
-      ' – ' +
-      lonText(home.lon + 1) +
-      ' · ' +
-      Math.abs(la0) +
-      '°' +
-      (la0 < 0 ? 'S' : la0 > 0 ? 'N' : '') +
-      ' – ' +
-      Math.abs(la1) +
-      '°' +
-      (la1 < 0 ? 'S' : la1 > 0 ? 'N' : '') +
+      'Home ' +
+      fmtLonLatPrecise(home.lon, home.lat) +
       ' · elevation ≈ ' +
-      (e === null ? '…' : sg(e, 1) + ' km') +
+      (e === null ? '…' : fmtSigned(e, 1) + ' km') +
       ' · temperature ≈ ' +
-      sg(t, 0) +
+      fmtSigned(homeTemp(), 0) +
       ' °C'
     );
   }
@@ -123,13 +110,44 @@ export function createHome(deps) {
     const marsMat = getMarsMat();
     if (marsMat) {
       marsMat.uniforms.uHome.value.set(
-        home ? home.lon : 0,
-        home ? home.lon + 1 : 0,
-        home ? home.lat : 0,
-        home ? home.lat + 1 : 0
+        home ? home.lon - HOME_BOX : 0,
+        home ? home.lon + HOME_BOX : 0,
+        home ? home.lat - HOME_BOX : 0,
+        home ? home.lat + HOME_BOX : 0
       );
     }
     if (onHomeChange) onHomeChange();
+  }
+
+  function saveHome() {
+    try {
+      if (home) localStorage.setItem('marsHome3', JSON.stringify(home));
+      else localStorage.removeItem('marsHome3');
+      localStorage.removeItem('marsHome2'); // старый секторный формат больше не нужен
+    } catch (err) { /* ignore */ }
+  }
+
+  /** Поставить домашний флажок в точку (градусы, восток +). */
+  function setHome(lonDeg, latDeg) {
+    home = {
+      lon: Math.round(wrap180(lonDeg) * 100) / 100,
+      lat: Math.round(Math.max(-89.9, Math.min(89.9, latDeg)) * 100) / 100
+    };
+    saveHome();
+    updateHome();
+  }
+
+  function clearHome() {
+    if (!home) return;
+    home = null;
+    saveHome();
+    updateHome();
+  }
+
+  function isHome(lonDeg, latDeg, tolDeg) {
+    if (!home) return false;
+    const tol = tolDeg === undefined ? 0.02 : tolDeg;
+    return Math.abs(wrap180(lonDeg - home.lon)) <= tol && Math.abs(latDeg - home.lat) <= tol;
   }
 
   function setHomeArmed(on) {
@@ -138,7 +156,7 @@ export function createHome(deps) {
     if (on && getPegArmed()) setArmed(false);
     if (marsHint) {
       marsHint.textContent = on
-        ? 'Click a spot to mark your home area (~60 km) · click it again to clear'
+        ? 'Click a spot to place your home flag (exact point) · click near it again to clear'
         : getMarsHintText();
     }
     const marsMat = getMarsMat();
@@ -170,24 +188,22 @@ export function createHome(deps) {
     if (Math.hypot(e.clientX - homeDown.x, e.clientY - homeDown.y) > 6) return;
     const hit = pickMars(e.clientX, e.clientY);
     if (!hit) return;
-    const l0 = Math.max(-180, Math.min(179, Math.floor(hit.lon)));
-    const a0 = Math.max(-90, Math.min(89, Math.floor(hit.lat)));
-    if (home && home.lon === l0 && home.lat === a0) home = null;
-    else home = { lon: l0, lat: a0 };
-    try {
-      if (home) localStorage.setItem('marsHome2', JSON.stringify(home));
-      else localStorage.removeItem('marsHome2');
-    } catch (err) { /* ignore */ }
+    if (isHome(hit.lon, hit.lat, CLEAR_DEG)) clearHome();
+    else setHome(hit.lon, hit.lat);
     setHomeArmed(false);
-    updateHome();
   });
 
   return {
     homeTemp,
     homeElev,
     homeText,
+    pointTemp,
+    pointElev,
     updateHome,
     setHomeArmed,
+    setHome,
+    clearHome,
+    isHome,
     getHome,
     getHomeArmed
   };

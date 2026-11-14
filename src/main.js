@@ -25,11 +25,13 @@ import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
 import { createPlacesSection } from './markers/places.js';
+import { createFlags } from './markers/flags.js';
 
 import { createSurfaceScene } from './surface/scene.js';
 import { createPano } from './surface/pano.js';
 import { createSurfHud } from './surface/hud.js';
 import { createSurfaceController } from './surface/controller.js';
+import { createSurfaceMusic } from './surface/music.js';
 
 import { createFlatView } from './flat/view.js';
 import { setupInput } from './app/input.js';
@@ -266,6 +268,7 @@ import { setupInput } from './app/input.js';
   // ---- 9. Марс: home / peg / landing ----
   let peg = null;                 // нужен до home (getPegArmed)
   let home = null;                // нужен до controls.homeArmedRef — сделан ленивым
+  let flags = null;               // флажки (создаются после landing); home и surface обращаются к ним лениво
 
   home = createHome({
     getMarsMat: () => marsMat,
@@ -284,7 +287,7 @@ import { setupInput } from './app/input.js';
     setArmed: (on) => { if (peg) peg.setArmed(on); },
     getPegArmed: () => (peg ? peg.getPegArmed() : false),
     pickMars: (cx, cy) => pick.pickMars(cx, cy),
-    onHomeChange: markDirty
+    onHomeChange: () => { markDirty(); if (flags) flags.refresh(); }
   });
 
   // surfaceController нужен landing и transitions; создаётся ниже
@@ -332,9 +335,14 @@ import { setupInput } from './app/input.js';
     surfSun: () => surfaceController.surfSun()
   });
 
+  const surfaceMusic = createSurfaceMusic();
+
+  surfaceMusic.load( 'assets/music/moxie-at-work.ogg');
+
   surfaceController = createSurfaceController({
     getMode: () => state.mode,
     setMode: (m) => { state.mode = m; },
+    surfaceMusic,
     getTransitioning: () => state.transitioning,
     setTransitioning: (v) => { state.transitioning = v; },
     veil: ui.veil,
@@ -355,7 +363,8 @@ import { setupInput } from './app/input.js';
     surfHudApi,
     marsBack: ui.marsBack,
     getRenderDirty: () => state.renderDirty,
-    setRenderDirty: (v) => { state.renderDirty = v; }
+    setRenderDirty: (v) => { state.renderDirty = v; },
+    onVisit: (lon, lat) => { if (flags) flags.addVisit(lon, lat); }
   });
 
   // ---- 11. Landing (после surfaceController — нужен dropExplorer) ----
@@ -375,6 +384,22 @@ import { setupInput } from './app/input.js';
     getSurfScene: () => surfaceScene.getSurfScene(),
     setSurfTexDirty: () => surfaceController.setSurfTexDirty(),
     dropExplorer: (lon, lat) => surfaceController.dropExplorer(lon, lat),
+    onDirty: markDirty
+  });
+
+  // ---- 11b. Флажки: посещённые места + домашняя точка ----
+  flags = createFlags({
+    getMode: () => state.mode,
+    getMarsCam: () => marsCam,
+    getMarsSpin: () => marsSpin,
+    getFlatOn: () => flatView ? flatView.getFlatOn() : false,
+    getFl: () => flatView ? flatView.getFl() : { lon: 0, lat: 0 },
+    getSunInfo: () => sunInfo,
+    siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),
+    getHomeApi: () => home,
+    dropExplorer: (lon, lat) => surfaceController.dropExplorer(lon, lat),
+    getTransitioning: () => state.transitioning,
+    canvas: renderer.domElement,
     onDirty: markDirty
   });
 
@@ -505,8 +530,11 @@ import { setupInput } from './app/input.js';
       state.renderDirty = false;
       renderer.render(flatOn ? flatView.getFlatScene() : marsScene, marsCam);
       landing.updateLandPin();
+      flags.update(dt);
       return;
     }
+
+    flags.hide();
 
     if (state.mode === 'surface') {
       const sr = surfaceController.updateSurface(dt);

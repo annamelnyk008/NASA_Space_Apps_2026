@@ -15,6 +15,7 @@ export function createSurfaceController(deps) {
     setMode,
     getTransitioning,
     setTransitioning,
+    surfaceMusic,
     veil,
     marsUI,
     layoutPop,
@@ -37,7 +38,8 @@ export function createSurfaceController(deps) {
     surfHudApi,   // createSurfHud result
     marsBack,
     getRenderDirty,
-    setRenderDirty
+    setRenderDirty,
+    onVisit // (lonDeg, latDeg) — игрок побывал на поверхности: ставим флажок
   } = deps;
 
   const surf = {
@@ -345,7 +347,9 @@ export function createSurfaceController(deps) {
       .then(function () {
         surf.building = false;
         surf.hold = false;
+        if (onVisit) onVisit(surf.lon / D2R, surf.lat / D2R);
         setRenderDirty(true);
+        surfaceMusic.play();
         return wait(120);
       })
       .then(function () {
@@ -361,6 +365,7 @@ export function createSurfaceController(deps) {
 
   function closeSurface() {
     if (getTransitioning() || getMode() !== 'surface') return;
+    surfaceMusic.stop();
     setTransitioning(true);
     veil.classList.add('on');
     const lonDeg = surf.lon / D2R;
