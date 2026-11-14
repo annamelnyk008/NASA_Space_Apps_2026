@@ -79,6 +79,8 @@ const SHAPES = {
   home: 'M12 9 22.6 18.6H19.6V32H4.4V18.6H1.4Z',
   danger: 'M12 8.5 23.2 31.5H0.8Z',
   food: 'M12 32C2.5 28.5 3 14 20.5 5.5 22.5 18.5 20.5 29 12 32Z',
+  nasa: 'M12 3 22 17 12 31 2 17Z',
+  esa: 'M12 3 22 17 12 31 2 17Z',
   water: 'M12 5C12 5 3.5 15.5 3.5 23.5a8.5 8.5 0 0 0 17 0C20.5 15.5 12 5 12 5Z'
 };
 
@@ -133,6 +135,7 @@ export function createMarks(deps) {
     getHomeApi,
     pickMars,
     dropExplorer,
+    onRouteFrom,
     renderer,
     getPegArmed,
     setPegArmed,
@@ -161,11 +164,14 @@ export function createMarks(deps) {
         n: Math.max(0, +m.n || 0),
         name: typeof m.name === 'string' ? m.name.slice(0, 32) : '',
         cat: catOf(m.cat),
+        show: m.show !== false,
+        via: m.via === 'detail' ? 'detail' : '',
         note: typeof m.note === 'string' ? m.note.slice(0, NOTE_MAX) : ''
       }));
   } catch (e) { /* ignore */ }
 
   let armed = false;
+  let vehicles = [];        // марсоходы, отмеченные в разделе «Vehicles»
   let showVisits = false;   // пины посадок видны только пока открыта «Landing history»
   let draft = null;     // { lon, lat, cat } — метка, которую пользователь ещё заполняет
   let selKey = null;
@@ -226,6 +232,7 @@ export function createMarks(deps) {
     '<div class="mk-btns">' +
     '<button type="button" class="chip lp-go" data-a="land">Land here</button>' +
     '<button type="button" class="chip mk-home-btn" data-a="home" aria-pressed="false">Home</button>' +
+    '<button type="button" class="chip" data-a="route" title="Plan a route that starts at this mark">Route from here</button>' +
     '<button type="button" class="chip" data-a="del">Delete</button>' +
     '</div>';
   root.appendChild(card);
@@ -289,6 +296,7 @@ export function createMarks(deps) {
   const btnLand = q('[data-a="land"]');
   const btnHomeAct = q('[data-a="home"]');
   const btnDel = q('[data-a="del"]');
+  const btnRoute = q('[data-a="route"]');
 
   // ---- набор пинов ----
   function desired() {
@@ -298,10 +306,12 @@ export function createMarks(deps) {
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i];
       if (m.kind === 'visit' && !showVisits) continue;
+      if (m.kind === 'mark' && m.show === false) continue;   // метка скрыта галочкой в списке
       // метка, совпавшая с домом, рисуется одним (домашним) пином
       if (home && Math.abs(wrap180(m.lon - home.lon)) <= SAME_DEG && Math.abs(m.lat - home.lat) <= SAME_DEG) continue;
       list.push({ key: 'm:' + m.id, kind: m.kind, cat: m.kind === 'visit' ? 'visit' : m.cat, id: m.id, lon: m.lon, lat: m.lat });
     }
+    vehicles.forEach((v) => list.push({ key: 'v:' + v.id, kind: 'vehicle', cat: v.agency, id: v.id, name: v.name, lon: v.lon, lat: v.lat }));
     if (home) list.push({ key: 'home', kind: 'home', cat: 'home', id: 'home', lon: home.lon, lat: home.lat });
     if (draft) list.push({ key: 'draft', kind: 'mark', cat: draft.cat, id: 'draft', lon: draft.lon, lat: draft.lat, draft: true });
     return list;
@@ -311,6 +321,12 @@ export function createMarks(deps) {
     const el = document.createElement('div');
     el.className = 'mk ' + it.kind + ' cat-' + it.cat + (it.draft ? ' draft' : '');
     el.style.visibility = 'hidden';
+    if (it.kind === 'vehicle') {
+      const lab = document.createElement('span');
+      lab.className = 'mk-vlabel';
+      lab.textContent = it.name;
+      el.appendChild(lab);
+    }
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mk-btn';
@@ -318,7 +334,7 @@ export function createMarks(deps) {
     b.appendChild(pinSvg(it.cat));
     b.addEventListener('click', function (e) {
       e.stopPropagation();
-      if (it.draft) return;
+      if (it.draft || it.kind === 'vehicle') return;
       select(selKey === it.key ? null : it.key);
     });
     el.appendChild(b);
@@ -336,7 +352,7 @@ export function createMarks(deps) {
       keep.add(d.key);
       let it = items.get(d.key);
       if (!it) {
-        it = { key: d.key, kind: d.kind, cat: d.cat, draft: !!d.draft, id: d.id, el: null, vis: null };
+        it = { key: d.key, kind: d.kind, cat: d.cat, draft: !!d.draft, id: d.id, name: d.name, el: null, vis: null };
         it.el = makeEl(it);
         items.set(d.key, it);
       } else if (it.cat !== d.cat) {
@@ -508,6 +524,16 @@ export function createMarks(deps) {
     select(null);
     setArmed(false);
     dropExplorer(lon, lat);
+  });
+
+  btnRoute.addEventListener('click', function () {
+    const it = selKey ? items.get(selKey) : null;
+    if (!it || getTransitioning() || getMode() !== 'mars' || !onRouteFrom) return;
+    const m = marks.filter((x) => x.id === it.id)[0];
+    const label = m && m.name ? m.name : it.kind === 'home' ? 'Home' : '';
+    select(null);
+    setArmed(false);
+    onRouteFrom(it.lon, it.lat, label);
   });
 
   btnDel.addEventListener('click', function () {
@@ -700,13 +726,22 @@ export function createMarks(deps) {
   }
 
   /** Вызывается, когда игрок побывал на поверхности в точке (градусы, восток +). */
-  function addVisit(lonDeg, latDeg) {
+  function addVisit(lonDeg, latDeg, opts) {
     const lon = round3(wrap180(lonDeg));
     const lat = round3(latDeg);
-    const same = markNear(lon, lat);
+    const via = opts && opts.via ? opts.via : '';
+    let same = null;
+    if (via) same = marks.filter((m) => m.via === via && m.name === opts.name)[0] || null;
+    else {
+      for (let i = 0; i < marks.length; i++) {
+        const m = marks[i];
+        if (!m.via && Math.abs(wrap180(m.lon - lon)) <= SAME_DEG && Math.abs(m.lat - lat) <= SAME_DEG) { same = m; break; }
+      }
+    }
     if (same) {
       same.n++;
       same.t = Date.now();
+      if (via) { same.lon = lon; same.lat = lat; }
     } else {
       marks.push({
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -715,7 +750,8 @@ export function createMarks(deps) {
         lat,
         t: Date.now(),
         n: 1,
-        name: 'Landing site',
+        via,
+        name: (opts && opts.name) || 'Landing site',
         cat: 'info',
         note: ''
       });
@@ -822,6 +858,15 @@ export function createMarks(deps) {
     addMark,
     addVisit,
     removeMark,
+    setVehicles: (list) => { vehicles = list.slice(); sig = null; refresh(); },
+    setMarkVisible: (id, on) => {
+      const m = marks.filter((x) => x.id === id)[0];
+      if (!m) return;
+      m.show = !!on;
+      save();
+      sig = null;
+      refresh();
+    },
     setVisitsVisible: (on) => {
       on = !!on;
       if (on === showVisits) return;
@@ -862,7 +907,7 @@ export function createMarksSection({ list, marksApi, getHomeApi, getMode, getTra
   if (!list || !marksApi) return null;
   const cats = marksApi.getCats();
 
-  function row(label, note, cls, lon, lat, id) {
+  function row(label, note, cls, lon, lat, id, show) {
     const li = document.createElement('li');
     const b = document.createElement('button');
     b.type = 'button';
@@ -880,7 +925,17 @@ export function createMarksSection({ list, marksApi, getHomeApi, getMode, getTra
     b.appendChild(dot);
     b.appendChild(tx);
     li.appendChild(b);
-    if (id) li.appendChild(delBtn(id, label));
+    if (id) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'mk-vis';
+      cb.checked = show !== false;
+      cb.title = 'Show this mark on the planet';
+      cb.setAttribute('aria-label', 'Show ' + label + ' on the planet');
+      cb.addEventListener('change', function () { marksApi.setMarkVisible(id, cb.checked); });
+      li.appendChild(cb);
+      li.appendChild(delBtn(id, label));
+    }
     return li;
   }
 
@@ -913,13 +968,13 @@ export function createMarksSection({ list, marksApi, getHomeApi, getMode, getTra
     const homeApi = getHomeApi();
     const home = homeApi ? homeApi.getHome() : null;
     const ms = marksApi.getMarks().filter((m) => m.kind === 'mark');
-    const sig = JSON.stringify([home, ms.map((m) => [m.id, m.name, m.cat, m.lon, m.lat])]);
+    const sig = JSON.stringify([home, ms.map((m) => [m.id, m.name, m.cat, m.lon, m.lat, m.show !== false])]);
     if (sig === lastSig) return;
     lastSig = sig;
     listHost.textContent = '';
     if (home) listHost.appendChild(row('Home', fmtLonLatPrecise(home.lon, home.lat), 'home', home.lon, home.lat, ''));
     ms.slice().reverse().forEach((m) => {
-      listHost.appendChild(row(m.name || 'Mark', cats[m.cat].label + ' · ' + fmtLonLatPrecise(m.lon, m.lat), 'cat-' + m.cat, m.lon, m.lat, m.id));
+      listHost.appendChild(row(m.name || 'Mark', cats[m.cat].label + ' · ' + fmtLonLatPrecise(m.lon, m.lat), 'cat-' + m.cat, m.lon, m.lat, m.id, m.show));
     });
     if (!listHost.firstChild) {
       const li = document.createElement('li');
@@ -985,17 +1040,18 @@ export function createLandingHistory({ wrap, btn, pop, pegBtn, marksApi, getTran
     pop.textContent = '';
     const head = document.createElement('p');
     head.className = 'lh-title';
-    head.textContent = 'Landing history';
+    head.textContent = 'Exploration history';
     pop.appendChild(head);
     if (!vs.length) {
       const e = document.createElement('p');
       e.className = 'lh-empty';
-      e.textContent = 'No landings yet — drop the Explorer on the planet and press “Land here”.';
+      e.textContent = 'Nothing here yet — drop the Explorer on the planet and press “Land here” or “Detailed view”.';
       pop.appendChild(e);
       return;
     }
     const ul = document.createElement('ul');
     ul.className = 'lh-list';
+    const lands = vs.filter((x) => !x.via);
     vs.forEach((m, i) => {
       const li = document.createElement('li');
       const b = document.createElement('button');
@@ -1006,7 +1062,7 @@ export function createLandingHistory({ wrap, btn, pop, pegBtn, marksApi, getTran
       b.setAttribute('data-lat', m.lat);
       const t = document.createElement('span');
       t.className = 'lh-name';
-      t.textContent = (m.name || 'Landing site') + (vs.length > 1 ? ' #' + (vs.length - i) : '');
+      t.textContent = (m.name || 'Landing site') + (!m.via && lands.length > 1 ? ' #' + (lands.length - lands.indexOf(m)) : '');
       const sm = document.createElement('small');
       sm.textContent = fmtLonLatPrecise(m.lon, m.lat) + ' · ' + (m.n > 1 ? m.n + '× · ' : '') + fmtDate(m.t);
       b.appendChild(t);

@@ -76,7 +76,7 @@
 .lp-card {
   position: absolute;
   box-sizing: border-box;
-  width: 210px;
+  width: 348px;
   padding: 8px;
   pointer-events: auto;
   border-radius: 14px;
@@ -119,9 +119,16 @@
   margin-top: 8px;
 }
 
+.lp-btns {
+  flex-wrap: nowrap;
+}
+
 .lp-btns .chip {
-  padding: 6px 12px;
+  flex: 1 1 auto;
+  padding: 6px 10px;
   font-size: 13px;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .lp-go {

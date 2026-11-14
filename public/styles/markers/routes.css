@@ -80,3 +80,44 @@
 .rt-note.rt-warn { color: #8a5a00; }
 
 body.rt-picking, body.rt-picking canvas { cursor: crosshair !important; }
+
+/* Подсказки по названию (места, метки, марсоходы): все совпадения, без прокрутки */
+.rt-row { position: relative; flex-wrap: wrap; }
+.rt-sugg {
+  flex: 1 0 100%;            /* в потоке, на своей строке: панель просто растёт, без всплывающего слоя и лишней прокрутки */
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #c8d0e6;
+  border-radius: 10px;
+}
+.rt-sugg[hidden] { display: none; }
+.rt-opt {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  align-items: center;
+  cursor: pointer;
+  font: 600 14px/1.2 var(--font-display);
+  color: var(--side-ink, #1c2442);
+  border-radius: 8px;
+}
+.rt-opt:hover, .rt-opt.act { background: rgba(255, 106, 58, 0.14); }
+.rt-opt-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-opt-k { flex: none; font: 500 11px/1 var(--font-display); color: var(--side-muted, #7a86a8); }
+.rt-sugg {
+  max-height: 210px;           /* 6 строк по 34px + рамка/отступы; остальное — прокруткой внутри списка */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c3cbe2 #fff;
+}
+.rt-sugg::-webkit-scrollbar { width: 6px; }
+.rt-sugg::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+.rt-sugg::-webkit-scrollbar-thumb { background: #c3cbe2; border-radius: 3px; }

@@ -53,6 +53,7 @@ export function updateMars(dt, ctx) {
   marsRoot.rotation.x = mv.pitch;
   marsCam.position.set(0, 0, mv.dist);
   marsRoot.updateMatrixWorld(true);
+  if (ctx.detail) ctx.detail.applyCamera();
 
   // реальное Солнце
   marsSun.update();
@@ -85,6 +86,7 @@ export function updateMars(dt, ctx) {
   if (mv.dist < 4.2) tex.requestLevel(2).then(tex.applyTexLevel);
   tex.applyTexLevel();
   geo.updateGeoLod();
+  if (ctx.detail) ctx.detail.postUpdate();
 
   labels.updateLabels();
   labels.updateMoonLabels();
@@ -93,7 +95,7 @@ export function updateMars(dt, ctx) {
   if (uiTimerRef.v <= 0) {
     uiTimerRef.v = 0.5;
     updateReadout();
-    updateTiles();
+    if (!(ctx.detail && ctx.detail.isActive())) updateTiles();
   }
 
   // адаптивное разрешение

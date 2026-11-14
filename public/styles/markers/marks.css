@@ -426,3 +426,40 @@
 .mk-form .mk-field:focus { border-color: var(--pin); }
 .mk-sub.mk-new { margin: 3px 2px 0; font: 600 14px/1.25 var(--font-display); color: var(--ink); }
 .mk-btns [hidden] { display: none; }
+
+/* Марсоходы (раздел «Vehicles») и галочки видимости */
+.cat-nasa { --pin: #4aa3ff; --pin-in: #06305a; }
+.cat-esa { --pin: #ffd34a; --pin-in: #5a4200; }
+.mk-list .poi.veh-nasa i { background: #4aa3ff; box-shadow: 0 0 0 4px rgba(74, 163, 255, 0.22); }
+.mk-list .poi.veh-esa i { background: #e8b923; box-shadow: 0 0 0 4px rgba(232, 185, 35, 0.22); }
+.veh-items { display: flex; flex-direction: column; gap: 3px; }
+.veh-items li { display: flex; align-items: center; gap: 4px; }
+.veh-items li > .poi { flex: 1; min-width: 0; }
+.mk-vis {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0 4px;
+  cursor: pointer;
+  accent-color: var(--side-accent, #ff6a3a);
+}
+.mk-vlabel {
+  position: absolute;
+  left: 12px;
+  top: -27px;
+  white-space: nowrap;
+  font: 600 12px/1 var(--font-display);
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 6px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
+
+/* Vehicles: видно 3 марсохода, остальные — прокруткой внутри списка */
+.mk-list.veh-items {
+  max-height: 203px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c3cbe2 transparent;
+  padding-right: 4px;
+}

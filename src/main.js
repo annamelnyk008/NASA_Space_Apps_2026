@@ -20,12 +20,15 @@ import { createMarsControls } from './mars/controls.js';
 import { createMarsTransitions } from './mars/transitions.js';
 import { createHome } from './mars/home.js';
 import { createLanding } from './mars/landing.js';
+import { createDetail } from './mars/detail.js';
 import { createPeg } from './mars/peg.js';
 import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
+import { PLACES } from './markers/places.js';
 import { createPlacesSection } from './markers/places.js';
 import { createMarks, createMarksSection, createLandingHistory } from './markers/marks.js';
+import { VEHICLES, createVehiclesSection } from './markers/vehicles.js';
 import { createRoutesSection } from './markers/routes.js';
 import { createElevationSource } from './markers/route-elevation.js';
 import { heightField } from './data/heightField.js';
@@ -158,7 +161,10 @@ import { setupInput } from './app/input.js';
     labelsEl: ui.labelsEl,
     getMarsCam: () => marsCam,
     getMarsSpin: () => marsSpin,
-    isGridOn: () => controls ? controls.getGridOn() : false
+    isGridOn: () => controls ? controls.getGridOn() : false,
+    places: PLACES,
+    isFlat: () => flatView ? flatView.getFlatOn() : false,
+    getFl: () => flatView ? flatView.getFl() : null
   });
 
   const geo = createGeo({
@@ -200,6 +206,7 @@ import { setupInput } from './app/input.js';
 
   // ---- 6. Марс: сцена ----
   // marsScene — объект, который buildMars вернёт. Поля marsCam/marsMat/... доступны после сборки.
+  let routesApi = null;
   let marsScene = null;           // THREE.Scene
   let marsCam = null;
   let marsRoot = null;
@@ -288,8 +295,17 @@ import { setupInput } from './app/input.js';
           markDirty();
         }
       }),
-      createRoutesSection({
+      routesApi = createRoutesSection({
         host: ui.routeBody,
+        getNamedPoints: () => {
+          const out = VEHICLES.map((v) => ({ name: v.name, lon: v.lon, lat: v.lat, kind: 'Vehicle' }));
+          if (marks) {
+            marks.getMarks().filter((m) => m.kind === 'mark').forEach((m) => out.push({ name: m.name || 'Mark', lon: m.lon, lat: m.lat, kind: 'Mark' }));
+          }
+          const h = home && home.getHome ? home.getHome() : null;
+          if (h) out.push({ name: 'Home', lon: h.lon, lat: h.lat, kind: 'Home' });
+          return out;
+        },
         getTransitioning: () => state.transitioning,
         pickMars: (cx, cy) => pick.pickMars(cx, cy),
         flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
@@ -319,6 +335,7 @@ import { setupInput } from './app/input.js';
   // surfaceController нужен landing и transitions; создаётся ниже
   let surfaceController = null;
   let landing = null;
+  let detail = null;
 
   peg = createPeg({
     pegBtn: ui.btnPeg,
@@ -412,11 +429,41 @@ import { setupInput } from './app/input.js';
     getSurfScene: () => surfaceScene.getSurfScene(),
     setSurfTexDirty: () => surfaceController.setSurfTexDirty(),
     dropExplorer: (lon, lat) => surfaceController.dropExplorer(lon, lat),
+    getDetailModel: (lon, lat) => detail ? detail.near(lon, lat) : null,
+    onDetail: (m, lon, lat) => { if (detail) detail.enter(m, lon, lat); },
     onDirty: markDirty
+  });
+
+  // ---- 11a. Detailed view: высокодетальная модель над поверхностью ----
+  detail = createDetail({
+    getMode: () => state.mode,
+    getTransitioning: () => state.transitioning,
+    getFlatOn: () => flatView ? flatView.getFlatOn() : false,
+    getMarsCam: () => marsCam, getMarsSpin: () => marsSpin, getMarsRoot: () => marsRoot,
+    getMarsMat: () => marsMat, getMarsAtmoMat: () => marsAtmoMat,
+    mv, tex,
+    siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),
+    cv: renderer.domElement,
+    exitBtn: document.getElementById('detail-exit'),
+    veil: ui.veil, kickerEl: ui.kickerEl, showFact,
+    setFlat: (on) => { if (flatView) flatView.setFlat(on); },
+    onEnter: (m, lon, lat) => {
+      landing.clearPin();
+      if (marks) marks.addVisit(lon, lat, { via: 'detail', name: m.name + ' — Detailed view' });
+    },
+    onExit: () => { markDirty(); },
+    markDirty
   });
 
   // ---- 11b. Метки: режим Mark, посещённые места, домашняя точка ----
   marks = createMarks({
+    onRouteFrom: (lon, lat, label) => {
+      const side = document.getElementById('side-toggle');
+      if (side && side.getAttribute('aria-expanded') !== 'true') side.click();
+      const head = document.querySelector('.side-head[aria-controls="route-body"]');
+      if (head && head.getAttribute('aria-expanded') !== 'true') head.click();
+      if (routesApi) routesApi.startFrom(lon, lat, label);
+    },
     btnMark: ui.btnMark,
     marsHint: ui.marsHint,
     getMarsHintText,
@@ -449,6 +496,14 @@ import { setupInput } from './app/input.js';
     flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
   });
 
+  createVehiclesSection({
+    list: document.getElementById('veh-list'),
+    marksApi: marks,
+    getTransitioning: () => state.transitioning,
+    clearPressed: () => controls.clearPressed(),
+    flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
+  });
+
   createLandingHistory({
     wrap: ui.lhWrap,
     btn: ui.lhBtn,
@@ -459,6 +514,18 @@ import { setupInput } from './app/input.js';
     clearPressed: () => controls.clearPressed(),
     flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
   });
+
+  const btnLabels = document.getElementById('btn-labels');
+  if (btnLabels) {
+    const LKEY = 'marsPlaceLabels1';
+    const setLabels = (on) => {
+      btnLabels.setAttribute('aria-checked', String(on));
+      labels.setPlaceLabels(on);
+      try { localStorage.setItem(LKEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
+    };
+    btnLabels.addEventListener('click', () => setLabels(btnLabels.getAttribute('aria-checked') !== 'true'));
+    try { if (localStorage.getItem(LKEY) === '1') setLabels(true); } catch (e) { /* ignore */ }
+  }
 
   // ---- 12. Марс: transitions ----
   const transitions = createMarsTransitions({
@@ -508,6 +575,7 @@ import { setupInput } from './app/input.js';
     get marsCam() { return marsCam; },
     get marsMat() { return marsMat; },
     get marsAtmoMat() { return marsAtmoMat; },
+    get detail() { return detail; },
     get marsLight() { return marsLight; },
     get marsMoons() { return marsMoons; },
     marsSun, sunObj, sunInfo, sunWorld, tmpQ,
@@ -583,7 +651,7 @@ import { setupInput } from './app/input.js';
       const flatOn = flatView.getFlatOn();
       if (flatOn) flatView.prepFlat(dt);
       updateMars(dt, updateCtx);
-      if (flatOn) flatView.updateFlat();
+      if (flatOn) { flatView.updateFlat(); labels.updatePlaceLabels(); }
       state.renderDirty = false;
       renderer.render(flatOn ? flatView.getFlatScene() : marsScene, marsCam);
       landing.updateLandPin();

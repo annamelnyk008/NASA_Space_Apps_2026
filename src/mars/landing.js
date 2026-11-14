@@ -26,6 +26,8 @@ export function createLanding(deps) {
     getSurfScene,
     setSurfTexDirty, // () => { surf.tex = -1 }
     dropExplorer,
+    getDetailModel,
+    onDetail,
     onDirty
   } = deps;
 
@@ -41,6 +43,13 @@ export function createLanding(deps) {
   const lpSub = document.getElementById('lp-sub');
   const lpGo = document.getElementById('lp-go');
   const lpCancel = document.getElementById('lp-cancel');
+  const lpDetail = document.getElementById('lp-detail');
+  let lpModel = null;
+  if (lpDetail) {
+    lpDetail.addEventListener('click', function () {
+      if (landPin && lpModel && onDetail) onDetail(lpModel, landPin.lon, landPin.lat);
+    });
+  }
   const lpCtx = lpView.getContext('2d');
   const lpV = new THREE.Vector3();
   const lpC = new THREE.Vector3();
@@ -56,6 +65,11 @@ export function createLanding(deps) {
     lpEl.hidden = false;
     lpTitle.textContent = fmtLonLat(lonDeg, latDeg);
     const h = siteHeightKm(lonDeg, latDeg);
+    lpModel = !getDetailModel ? null : getDetailModel(lonDeg, latDeg);
+    if (lpDetail) {
+      lpDetail.hidden = !lpModel;
+      if (lpModel) lpDetail.title = 'Explore a high-detail 3D model of ' + lpModel.name;
+    }
     lpSub.textContent = h === null ? '' : 'elevation ' + (h < 0 ? '−' : '') + Math.abs(h).toFixed(1) + ' km';
     lpView.classList.add('wait');
     updateLandPin();

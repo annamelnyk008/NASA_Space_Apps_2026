@@ -19,7 +19,7 @@ function fmtCoord(p) {
 }
 
 // «Olympus Mons», «18.4, 77.5» или «18.4°N 77.5°E»
-export function parsePoint(text) {
+export function parsePoint(text, extras) {
   const t = String(text || '').trim();
   if (!t) return null;
   const low = t.toLowerCase();
@@ -29,6 +29,14 @@ export function parsePoint(text) {
     if (m.length === 1) pl = m[0];
   }
   if (pl) return { lon: pl.lon, lat: pl.lat, label: pl.name };
+  if (extras && extras.length) {
+    let ex = extras.filter(function (p) { return p.name.toLowerCase() === low; })[0];
+    if (!ex) {
+      const m2 = extras.filter(function (p) { return p.name.toLowerCase().indexOf(low) === 0; });
+      if (m2.length === 1) ex = m2[0];
+    }
+    if (ex) return { lon: ex.lon, lat: ex.lat, label: ex.name };
+  }
   const re = /([+-]?\d+(?:[.,]\d+)?)\s*°?\s*([NSEWnsew])?/g, found = [];
   let m;
   while ((m = re.exec(t)) !== null) found.push({ v: parseFloat(m[1].replace(',', '.')), c: (m[2] || '').toUpperCase() });
@@ -110,19 +118,19 @@ function buildProfile(route) {
  * @param {function} deps.heightField        data/heightField.js
  * @param {number}   deps.tileSize           data/tiles.js → TS
  */
-export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, getMarsMat, markDirty, heightField, tileSize }) {
+export function createRoutesSection({ host, getNamedPoints, getTransitioning, pickMars, flyTo, getMarsMat, markDirty, heightField, tileSize }) {
   if (!host) return null;
 
   const state = { a: null, b: null, mode: 'balanced', route: null, armed: null, seq: 0 };   // один режим: balanced
 
   // ---------- разметка ----------
   const form = el('div', 'rt-form');
-  const inputs = {}, pins = {};
+  const inputs = {}, pins = {}, suggs = {};
   function endpointRow(key, letter, placeholder) {
     const row = el('div', 'rt-row');
     row.appendChild(el('span', 'rt-badge rt-badge-' + key, letter));
     const inp = el('input', 'rt-input');
-    inp.type = 'text'; inp.placeholder = placeholder; inp.setAttribute('list', 'rt-places');
+    inp.type = 'text'; inp.placeholder = placeholder;
     inp.setAttribute('autocomplete', 'off'); inp.setAttribute('spellcheck', 'false');
     inp.setAttribute('aria-label', key === 'a' ? 'Start point' : 'End point');
     const pin = el('button', 'rt-pin');
@@ -131,7 +139,9 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
     pin.setAttribute('aria-pressed', 'false');
     pin.innerHTML = '<svg viewBox="0 0 24 32" width="14" height="18" fill="currentColor" aria-hidden="true"><path d="M12 1C6 1 1.5 5.6 1.5 11.4 1.5 19 12 31 12 31s10.5-12 10.5-19.6C22.5 5.6 18 1 12 1zm0 15a4.6 4.6 0 1 1 0-9.2 4.6 4.6 0 0 1 0 9.2z"/></svg>';
     row.appendChild(inp); row.appendChild(pin);
-    inputs[key] = inp; pins[key] = pin;
+    const sugg = el('ul', 'rt-sugg'); sugg.hidden = true; sugg.setAttribute('role', 'listbox');
+    row.appendChild(sugg);
+    inputs[key] = inp; pins[key] = pin; suggs[key] = sugg;
     return row;
   }
   const rows = el('div', 'rt-rows');
@@ -142,9 +152,6 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
   swap.innerHTML = '<svg viewBox="0 0 16 18" width="14" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15V3M2 6l3-3 3 3M11 3v12M8 12l3 3 3-3"/></svg>';
   rows.appendChild(swap);
   form.appendChild(rows);
-  const list = el('datalist'); list.id = 'rt-places';
-  SURFACE_PLACES.forEach(function (p) { const o = el('option'); o.value = p.name; list.appendChild(o); });
-  form.appendChild(list);
 
   const actions = el('div', 'rt-actions');
   const go = el('button', 'rt-go', 'Find route'); go.type = 'button';
@@ -289,7 +296,7 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
   function readInput(key) {
     const text = inputs[key].value;
     if (!text.trim()) { state[key] = null; inputs[key].removeAttribute('aria-invalid'); clearRoute(); return false; }
-    const p = parsePoint(text);
+    const p = parsePoint(text, getNamedPoints ? getNamedPoints() : null);
     if (!p) {
       state[key] = null; inputs[key].setAttribute('aria-invalid', 'true'); clearRoute();
       say('Couldn’t understand “' + text.trim() + '”. Use a place name or “lat, lon”, e.g. 18.4, 77.5.', 'warn');
@@ -308,7 +315,75 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
     if (state.a && state.b && !state.route) say('Press \u201CFind route\u201D to plan the route.');
   }
 
+  // ---------- подсказки по названию: места, метки, марсоходы (видно 3, остальное прокруткой) ----------
+  function allNamed() {
+    const out = SURFACE_PLACES.map(function (p) { return { name: p.name, lon: p.lon, lat: p.lat, kind: 'Place' }; });
+    (getNamedPoints ? getNamedPoints() : []).forEach(function (p) { out.push(p); });
+    return out;
+  }
+  const sugState = { a: -1, b: -1 };
+  function hideSugg(k) { suggs[k].hidden = true; sugState[k] = -1; }
+  function showSugg(k) {
+    const q = inputs[k].value.trim().toLowerCase();
+    const all = allNamed();
+    const starts = all.filter(function (p) { return p.name.toLowerCase().indexOf(q) === 0; });
+    const inside = all.filter(function (p) { return p.name.toLowerCase().indexOf(q) > 0; });
+    const hits = q ? starts.concat(inside) : all;
+    const ul = suggs[k];
+    ul.textContent = '';
+    sugState[k] = -1;
+    if (!hits.length || /^[-+\d]/.test(q)) { ul.hidden = true; return; }
+    hits.forEach(function (p) {
+      const li = el('li', 'rt-opt');
+      li.setAttribute('role', 'option');
+      li.appendChild(el('span', 'rt-opt-n', p.name));
+      li.appendChild(el('small', 'rt-opt-k', p.kind));
+      li.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        inputs[k].value = p.name;
+        hideSugg(k);
+        if (readInput(k)) afterEdit();
+      });
+      ul.appendChild(li);
+    });
+    ul.hidden = false;
+    // если списку не хватает места — прокручивается сам выпадающий список, а не вся панель
+    ul.style.maxHeight = '';
+    const panel = host.closest ? host.closest('.side-panel') : null;
+    if (panel) {
+      const over = panel.scrollHeight - panel.clientHeight;
+      if (over > 0) {
+        ul.style.maxHeight = Math.max(70, ul.offsetHeight - over) + 'px';
+      }
+    }
+  }
+  function moveSugg(k, d) {
+    const items = suggs[k].children;
+    if (suggs[k].hidden || !items.length) return false;
+    if (sugState[k] >= 0) items[sugState[k]].classList.remove('act');
+    sugState[k] = (sugState[k] + d + items.length) % items.length;
+    items[sugState[k]].classList.add('act');
+    return true;
+  }
+
   ['a', 'b'].forEach(function (k) {
+    inputs[k].addEventListener('focus', function () { showSugg(k); });
+    inputs[k].addEventListener('input', function () { showSugg(k); });
+    inputs[k].addEventListener('blur', function () { setTimeout(function () { hideSugg(k); }, 120); });
+    inputs[k].addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' && moveSugg(k, 1)) { e.preventDefault(); return; }
+      if (e.key === 'ArrowUp' && moveSugg(k, -1)) { e.preventDefault(); return; }
+      if (e.key === 'Enter' && sugState[k] >= 0 && !suggs[k].hidden) {
+        e.preventDefault();
+        const li = suggs[k].children[sugState[k]];
+        inputs[k].value = li.querySelector('.rt-opt-n').textContent;
+        hideSugg(k);
+        if (readInput(k)) afterEdit();
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (e.key === 'Escape') hideSugg(k);
+    });
     inputs[k].addEventListener('change', function () { if (readInput(k)) afterEdit(); });
     inputs[k].addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); if (readInput(k)) { if (state.a && state.b) compute(); } }
@@ -358,5 +433,15 @@ export function createRoutesSection({ host, getTransitioning, pickMars, flyTo, g
   }, true);
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && state.armed) arm(null); });
 
-  return { id: 'routes', host, state, compute, clear: function () { clear.click(); } };
+  // «Route from here» из карточки метки: A = метка, затем ждём клик по планете для B
+  function startFrom(lon, lat, label) {
+    arm(null);
+    state.b = null; inputs.b.value = ''; inputs.b.removeAttribute('aria-invalid');
+    setPoint('a', { lon: lon, lat: lat }, label || fmtCoord({ lon: lon, lat: lat }));
+    go.disabled = false; go.textContent = 'Find route';
+    arm('b');
+    say('Start set. Click on the planet to choose the end (B), or type a place. Esc to cancel.');
+  }
+
+  return { id: 'routes', host, state, compute, startFrom, clear: function () { clear.click(); } };
 }

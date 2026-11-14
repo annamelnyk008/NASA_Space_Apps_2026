@@ -32,3 +32,24 @@
   font-weight: 600;
   color: #ffd9c2;
 }
+
+.glabel.place {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff3cf;
+}
+
+.glabel.place span {
+  display: inline-block;
+  transform: translate(-50%, -50%);
+}
+
+.place-labels {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.glabel.place { visibility: visible; }
