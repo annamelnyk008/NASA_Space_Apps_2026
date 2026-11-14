@@ -71,44 +71,42 @@ function fmtDate(t) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// значки внутри пина (viewBox 24×34, центр головки — (12, 11.8)); цвет — --pin-in
+// Форма пина зависит от категории (viewBox 24×34, острие/основание — внизу по центру). Минимализм: у каждой категории
+// просто своя залитая фигура с белым контуром, ничего внутри:
+//   info — классическая капля-пин с точкой; home — домик; danger — треугольник; food — листик; water — капля.
+const SHAPES = {
+  info: 'M12 1C5.9 1 1 5.8 1 11.8 1 20 12 33 12 33s11-13 11-21.2C23 5.8 18.1 1 12 1z',
+  home: 'M12 9 22.6 18.6H19.6V32H4.4V18.6H1.4Z',
+  danger: 'M12 8.5 23.2 31.5H0.8Z',
+  food: 'M12 32C2.5 28.5 3 14 20.5 5.5 22.5 18.5 20.5 29 12 32Z',
+  water: 'M12 5C12 5 3.5 15.5 3.5 23.5a8.5 8.5 0 0 0 17 0C20.5 15.5 12 5 12 5Z'
+};
+
+// внутренний значок есть только у классического пина (точка) — у остальных категорий внутри ничего нет
 function glyph(cat) {
   const g = document.createElementNS(SVG_NS, 'g');
-  const add = (tag, attrs) => {
-    const el = document.createElementNS(SVG_NS, tag);
-    for (const k in attrs) el.setAttribute(k, attrs[k]);
-    g.appendChild(el);
-    return el;
-  };
-  const ink = 'var(--pin-in)';
-  const stroke = { fill: 'none', stroke: ink, 'stroke-width': '1.7', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
-  if (cat === 'home') {
-    add('path', { d: 'M12 5.6 18.8 11.4H17V17.6H7V11.4H5.2Z', fill: ink });
-  } else if (cat === 'water') {
-    add('path', { d: 'M12 5.4C12 5.4 7.4 10.2 7.4 13.2a4.6 4.6 0 0 0 9.2 0C16.6 10.2 12 5.4 12 5.4Z', fill: ink });
-  } else if (cat === 'food') {
-    add('path', Object.assign({ d: 'M8.9 6V10.2a1.9 1.9 0 0 0 3.8 0V6M10.8 6V17.8' }, stroke));
-    add('path', Object.assign({ d: 'M15.6 17.8V6C13.9 7.2 13.4 9.7 13.4 12.6H15.6' }, stroke));
-  } else if (cat === 'danger') {
-    add('path', { d: 'M12 5.4 19 17.9H5Z', fill: ink });
-    add('path', { d: 'M12 9.9V13.6', stroke: 'var(--pin)', 'stroke-width': '1.8', 'stroke-linecap': 'round' });
-    add('circle', { cx: '12', cy: '15.9', r: '1', fill: 'var(--pin)' });
-  } else {
-    add('circle', { cx: '12', cy: '11.8', r: '4.3', fill: ink });
+  if (!cat || cat === 'info' || cat === 'visit') {
+    const dot = document.createElementNS(SVG_NS, 'circle');
+    dot.setAttribute('cx', '12');
+    dot.setAttribute('cy', '11.8');
+    dot.setAttribute('r', '4.3');
+    dot.setAttribute('fill', 'var(--pin-in)');
+    g.appendChild(dot);
   }
   return g;
 }
 
-// тот же силуэт, что у .lp-pin в index.html, но цвета берутся из --pin / --pin-in
+// тот же силуэт для info, что у .lp-pin в index.html, но цвета берутся из --pin / --pin-in
 function pinSvg(cat) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 34');
   svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', 'M12 1C5.9 1 1 5.8 1 11.8 1 20 12 33 12 33s11-13 11-21.2C23 5.8 18.1 1 12 1z');
+  path.setAttribute('d', SHAPES[cat] || SHAPES.info);
   path.setAttribute('fill', 'var(--pin)');
   path.setAttribute('stroke', '#fff');
   path.setAttribute('stroke-width', '1.6');
+  path.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(path);
   svg.appendChild(glyph(cat || 'info'));
   return svg;
@@ -168,9 +166,10 @@ export function createMarks(deps) {
   } catch (e) { /* ignore */ }
 
   let armed = false;
+  let showVisits = false;   // пины посадок видны только пока открыта «Landing history»
   let draft = null;     // { lon, lat, cat } — метка, которую пользователь ещё заполняет
   let selKey = null;
-  let sig = '';
+  let sig = null;
   let cardT = 0;
   let rootShown = false;
   const listeners = [];
@@ -208,12 +207,12 @@ export function createMarks(deps) {
   card.setAttribute('aria-label', 'Mark details');
   card.innerHTML =
     '<div class="mk-head"><i class="mk-dot"></i>' +
-    '<div class="mk-ttl"><input class="mk-name" type="text" maxlength="32" spellcheck="false" aria-label="Mark name">' +
+    '<div class="mk-ttl"><input class="mk-name" type="text" maxlength="32" spellcheck="false" aria-label="Mark name" placeholder="Name" title="Click to rename">' +
     '<p class="mk-sub"></p></div>' +
     '<button type="button" class="mk-x" aria-label="Close">&times;</button></div>' +
     '<div class="mk-edit">' +
     '<div class="mk-cats" role="radiogroup" aria-label="Category"></div>' +
-    '<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="2" spellcheck="false" placeholder="Add a note…" aria-label="Note"></textarea>' +
+    '<label class="mk-lab">Description<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="2" spellcheck="false" placeholder="Add a description…" aria-label="Description"></textarea></label>' +
     '</div>' +
     '<dl class="mk-rows">' +
     '<dt>Coordinates</dt><dd data-r="coord"></dd>' +
@@ -239,12 +238,12 @@ export function createMarks(deps) {
   form.setAttribute('aria-label', 'New mark');
   form.innerHTML =
     '<div class="mk-head"><i class="mk-dot"></i>' +
-    '<div class="mk-ttl"><input class="mk-name" type="text" maxlength="32" spellcheck="false" aria-label="Mark name" placeholder="Name">' +
-    '<p class="mk-sub">New mark</p></div>' +
+    '<div class="mk-ttl"><p class="mk-sub mk-new">New mark</p></div>' +
     '<button type="button" class="mk-x" aria-label="Cancel">&times;</button></div>' +
     '<div class="mk-edit">' +
-    '<div class="mk-cats" role="radiogroup" aria-label="Category"></div>' +
-    '<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="3" spellcheck="false" placeholder="Add a note…" aria-label="Note"></textarea>' +
+    '<label class="mk-lab">Name<input class="mk-name mk-field" type="text" maxlength="32" spellcheck="false" aria-label="Mark name" placeholder="Mark 1"></label>' +
+    '<div class="mk-lab">Category</div><div class="mk-cats" role="radiogroup" aria-label="Category"></div>' +
+    '<label class="mk-lab">Description<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="3" spellcheck="false" placeholder="Add a description…" aria-label="Description"></textarea></label>' +
     '</div>' +
     '<div class="mk-btns"><button type="button" class="chip lp-go" data-a="save">Save</button>' +
     '<button type="button" class="chip" data-a="cancel">Cancel</button></div>';
@@ -263,11 +262,7 @@ export function createMarks(deps) {
       b.setAttribute('aria-checked', 'false');
       b.setAttribute('data-cat', id);
       b.title = CATS[id].label;
-      const ic = document.createElementNS(SVG_NS, 'svg');
-      ic.setAttribute('viewBox', '0 0 24 34');
-      ic.setAttribute('aria-hidden', 'true');
-      ic.appendChild(glyph(id));
-      b.appendChild(ic);
+      b.appendChild(pinSvg(id));
       const t = document.createElement('span');
       t.textContent = CATS[id].label;
       b.appendChild(t);
@@ -302,6 +297,7 @@ export function createMarks(deps) {
     const list = [];
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i];
+      if (m.kind === 'visit' && !showVisits) continue;
       // метка, совпавшая с домом, рисуется одним (домашним) пином
       if (home && Math.abs(wrap180(m.lon - home.lon)) <= SAME_DEG && Math.abs(m.lat - home.lat) <= SAME_DEG) continue;
       list.push({ key: 'm:' + m.id, kind: m.kind, cat: m.kind === 'visit' ? 'visit' : m.cat, id: m.id, lon: m.lon, lat: m.lat });
@@ -424,6 +420,7 @@ export function createMarks(deps) {
     setRow('visit', n > 0 ? (n > 1 ? n + '× · last ' : '') + fmtDate(m.t) : isHome ? 'not visited yet' : null);
     setRow('placed', m && n === 0 ? fmtDate(m.t) : null);
 
+    btnHomeAct.hidden = !isHome;   // «Make home» убран у пользовательских меток; у самого домашнего пина остаётся кнопка снятия
     btnHomeAct.setAttribute('aria-pressed', String(isHome));
     btnHomeAct.classList.toggle('mu-home', isHome);
     btnHomeAct.textContent = isHome ? 'Home ✓' : 'Make home';
@@ -456,7 +453,7 @@ export function createMarks(deps) {
     if (!it || it.kind === 'home') return;
     const m = marks.find((x) => x.id === it.id);
     if (!m) return;
-    m.name = elName.value.trim().slice(0, 32);
+    m.name = elName.value.trim().slice(0, 32) || defaultName(m);   // пустое имя → стандартное «Mark N»
     save();
     fillCard();
     emit();
@@ -471,7 +468,7 @@ export function createMarks(deps) {
     if (!m || m.kind !== 'mark') return;
     m.cat = cat;
     save();
-    sig = '';
+    sig = null;
     refresh();
     fillCard();
   });
@@ -527,14 +524,14 @@ export function createMarks(deps) {
       select(null);
       const homeApi = getHomeApi();
       if (homeApi) homeApi.clearHome(); // → onHomeChange → refresh()
-      sig = '';
+      sig = null;
       refresh();
       return;
     }
     marks = marks.filter((m) => m.id !== it.id);
     save();
     select(null);
-    sig = '';
+    sig = null;
     refresh();
   });
 
@@ -572,6 +569,14 @@ export function createMarks(deps) {
   }
   buildCats(fCats, setFormCat);
 
+  // клик по любому другому элементу интерфейса (кроме формы и самого пина) — отмена неподтверждённой метки
+  document.addEventListener('pointerdown', function (e) {
+    if (!draft || form.contains(e.target) || e.target === canvas) return;
+    const t = e.target.closest ? e.target.closest('.mk.draft, .mk-add') : null;
+    if (t) return;
+    setArmed(false);
+  }, true);
+
   function startDraft(lon, lat) {
     const first = !draft;
     draft = { lon: round3(wrap180(lon)), lat: round3(Math.max(-89.9, Math.min(89.9, lat))), cat: first ? 'info' : draft.cat };
@@ -582,7 +587,7 @@ export function createMarks(deps) {
       form.hidden = false;
       setFormCat('info');
     }
-    sig = '';
+    sig = null;
     refresh();
     if (first) setTimeout(() => { try { fName.focus(); } catch (e) { /* ignore */ } }, 0);
     if (onDirty) onDirty();
@@ -591,7 +596,7 @@ export function createMarks(deps) {
     if (!draft) return;
     draft = null;
     form.hidden = true;
-    sig = '';
+    sig = null;
     refresh();
     if (onDirty) onDirty();
   }
@@ -602,7 +607,7 @@ export function createMarks(deps) {
     draft = null;
     form.hidden = true;
     setArmed(false);
-    sig = '';
+    sig = null;
     refresh();
     if (m) select('m:' + m.id);
   }
@@ -641,6 +646,11 @@ export function createMarks(deps) {
     if (selKey) select(null);
     if (!armed || getTransitioning()) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > DRAG_PX) return;
+    // форма уже открыта, а пользователь кликнул по карте — метка не подтверждена, убираем её
+    if (draft) {
+      setArmed(false);
+      return;
+    }
     const hit = pickMars(e.clientX, e.clientY);
     if (hit) startDraft(hit.lon, hit.lat);
   });
@@ -672,7 +682,7 @@ export function createMarks(deps) {
     marks.push(m);
     if (marks.length > MAX_MARKS) marks.shift();
     save();
-    sig = '';
+    sig = null;
     refresh();
     return m;
   }
@@ -684,7 +694,7 @@ export function createMarks(deps) {
     if (marks.length === before) return false;
     save();
     if (selKey === 'm:' + id) select(null);
-    sig = '';
+    sig = null;
     refresh();
     return true;
   }
@@ -712,7 +722,7 @@ export function createMarks(deps) {
       if (marks.length > MAX_MARKS) marks.shift();
     }
     save();
-    sig = '';
+    sig = null;
     refresh();
   }
 
@@ -812,6 +822,14 @@ export function createMarks(deps) {
     addMark,
     addVisit,
     removeMark,
+    setVisitsVisible: (on) => {
+      on = !!on;
+      if (on === showVisits) return;
+      showVisits = on;
+      root.classList.toggle('show-visits', on);   // подстраховка в CSS: без класса пины посадок скрыты
+      sig = null;
+      refresh();
+    },
     refresh,
     update,
     hide,
@@ -956,6 +974,7 @@ export function createLandingHistory({ wrap, btn, pop, pegBtn, marksApi, getTran
 
   function open(on) {
     pop.hidden = !on;
+    marksApi.setVisitsVisible(on);   // пины посадок — только пока список открыт
     btn.setAttribute('aria-expanded', String(on));
     btn.setAttribute('aria-pressed', String(on));
     if (on) render();
@@ -1024,11 +1043,8 @@ export function createLandingHistory({ wrap, btn, pop, pegBtn, marksApi, getTran
     clearPressed();
     flyTo(parseFloat(b.getAttribute('data-lon')), parseFloat(b.getAttribute('data-lat')), 1.6);
     marksApi.focusMark(b.getAttribute('data-id'));
-    open(false);
   });
-  document.addEventListener('pointerdown', function (e) {
-    if (!pop.hidden && !wrap.contains(e.target)) open(false);
-  });
+  // кнопка работает как переключатель: пока она нажата, виден список и пины посадок; клик в другом месте их не прячет
   window.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !pop.hidden) {
       e.stopPropagation();

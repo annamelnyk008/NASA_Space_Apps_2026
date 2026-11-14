@@ -381,6 +381,8 @@ import { setupInput } from './app/input.js';
     tex, tiles, geo,
     clearPressed: () => controls.clearPressed(),
     flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+    saveLandView: () => controls.saveLandView(),
+    restoreLandView: () => controls.restoreLandView(),
     showFact: showFact,
     setArmed: (on) => peg.setArmed(on),
     siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),

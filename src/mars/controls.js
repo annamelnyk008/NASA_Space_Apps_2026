@@ -70,6 +70,28 @@ export function createMarsControls(deps) {
     savedView = null;
   }
 
+  // Вид глобуса перед посадкой: при возврате с поверхности камера встаёт ровно туда, откуда игрок «прыгнул»
+  let landView = null;
+  function saveLandView() {
+    landView = { spin: mv.spin, pitch: mv.pitch, dist: mv.dist, tDist: mv.tDist, auto: mv.auto, userZoomed: mv.userZoomed };
+  }
+  /** @returns {boolean} true, если сохранённый вид был применён (мгновенно: экран в этот момент закрыт заставкой) */
+  function restoreLandView() {
+    if (!landView) return false;
+    mv.spin = landView.spin;
+    mv.pitch = landView.pitch;
+    mv.dist = clampDist(landView.dist);
+    mv.tDist = clampDist(landView.tDist);
+    mv.fly = false;
+    mv.auto = landView.auto;
+    mv.userZoomed = landView.userZoomed;
+    mv.dragging = false;
+    mv.vSpin = 0;
+    mv.vPitch = 0;
+    landView = null;
+    return true;
+  }
+
   function startView() {
     const sunInfo = getSunInfo();
     let lon = sunInfo.lonE - 40;
@@ -264,6 +286,8 @@ export function createMarsControls(deps) {
     flyTo,
     saveView,
     restoreView,
+    saveLandView,
+    restoreLandView,
     startView,
     resetMarsView,
     zoomBy,

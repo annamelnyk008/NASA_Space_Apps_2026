@@ -9,7 +9,8 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
-  max-height: calc(100% - 230px);
+  /* панель раскрывается до низа страницы; прокрутка появляется только у самой панели, когда места не хватает */
+  max-height: calc(100% - (max(16px, env(safe-area-inset-top, 0px)) + 56px) - max(16px, env(safe-area-inset-bottom, 0px)));
   min-height: 0;
   --side-ink: #14224d;
   --side-muted: #5a6891;
