@@ -57,8 +57,10 @@ function fmtCoord(v, pos, neg) {
  * @param {function} deps.getTransitioning
  * @param {function} deps.flyTo           (lon, lat, dist)
  * @param {function} deps.setHighlight    (place | null) — обводка на планете
+ * @param {function} deps.saveView        запомнить вид камеры перед первым переходом
+ * @param {function} deps.restoreView     вернуться к запомненному виду
  */
-export function createPlacesSection({ list, info, getTransitioning, flyTo, setHighlight }) {
+export function createPlacesSection({ list, info, getTransitioning, flyTo, setHighlight, saveView, restoreView }) {
   if (!list) return null;
 
   const buttons = [];
@@ -90,8 +92,9 @@ export function createPlacesSection({ list, info, getTransitioning, flyTo, setHi
     close: info.querySelector('.pi-close')
   } : null;
 
-  function deselect() {
+  function deselect(back) {
     current = null;
+    if (back === true && restoreView) restoreView();
     buttons.forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
     if (info) info.hidden = true;
     if (setHighlight) setHighlight(null);
@@ -99,6 +102,7 @@ export function createPlacesSection({ list, info, getTransitioning, flyTo, setHi
 
   function select(idx) {
     const p = PLACES[idx];
+    if (current === null && saveView) saveView();   // исходная точка — до первого перехода
     current = idx;
     buttons.forEach(function (x, i) { x.setAttribute('aria-pressed', i === idx ? 'true' : 'false'); });
     if (el) {
@@ -130,11 +134,11 @@ export function createPlacesSection({ list, info, getTransitioning, flyTo, setHi
     const b = e.target.closest ? e.target.closest('button') : null;
     if (!b || getTransitioning()) return;
     const idx = parseInt(b.getAttribute('data-idx'), 10);
-    if (idx === current) { deselect(); return; }   // повторный клик снимает выделение
+    if (idx === current) { deselect(true); return; }   // повторный клик: снять выделение и вернуться
     select(idx);
   });
 
-  if (el && el.close) el.close.addEventListener('click', deselect);
+  if (el && el.close) el.close.addEventListener('click', function () { deselect(false); });
 
   return { id: 'places', list, deselect, getCurrent: function () { return current; } };
 }

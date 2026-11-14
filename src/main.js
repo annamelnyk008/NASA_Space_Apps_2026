@@ -260,6 +260,8 @@ import { setupInput } from './app/input.js';
         info: ui.placeInfo,
         getTransitioning: () => state.transitioning,
         flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        saveView: () => controls.saveView(),
+        restoreView: () => controls.restoreView(),
         setHighlight: (p) => {
           const D = Math.PI / 180;
           if (marsMat) marsMat.uniforms.uPlace.value.set(p ? p.lon * D : 0, p ? p.lat * D : 0, p ? p.ring * D : 0, p ? 1 : 0);

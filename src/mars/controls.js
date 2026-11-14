@@ -52,6 +52,24 @@ export function createMarsControls(deps) {
     mv.vPitch = 0;
   }
 
+  // Запомнить текущий вид (для возврата из «Мест интереса») и вернуться к нему
+  let savedView = null;
+  function saveView() {
+    savedView = { spin: mv.spin, pitch: mv.pitch, dist: mv.dist, auto: mv.auto, userZoomed: mv.userZoomed };
+  }
+  function restoreView() {
+    if (!savedView) return;
+    mv.tSpin = savedView.spin;
+    mv.tPitch = savedView.pitch;
+    mv.tDist = clampDist(savedView.dist);
+    mv.fly = true;
+    mv.auto = false;
+    mv.userZoomed = savedView.userZoomed;
+    mv.vSpin = 0;
+    mv.vPitch = 0;
+    savedView = null;
+  }
+
   function startView() {
     const sunInfo = getSunInfo();
     let lon = sunInfo.lonE - 40;
@@ -244,6 +262,8 @@ export function createMarsControls(deps) {
   return {
     clearPressed,
     flyTo,
+    saveView,
+    restoreView,
     startView,
     resetMarsView,
     zoomBy,
