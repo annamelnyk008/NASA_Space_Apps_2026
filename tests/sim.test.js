@@ -48,7 +48,6 @@ test('smoothstep clamps', () => { assert.equal(smoothstep(0, 1, -1), 0); assert.
 
 import { project3, stepBallistic, visibilityM, G_MARS, CAM_H } from '../src/sim/sim-model.js';
 import { hash2, vnoise, fbm, rockCell } from '../src/sim/noise.js';
-import { SOUND_SPEED } from '../src/sim/sim-audio.js';
 
 test('project3: horizon, ground points and scale', () => {
   const o = {};
@@ -84,4 +83,3 @@ test('noise is deterministic, in range and tileable in x', () => {
   assert.ok(found > 10);
 });
 
-test('sound on Mars is slower than on Earth', () => { assert.ok(SOUND_SPEED < 343); });

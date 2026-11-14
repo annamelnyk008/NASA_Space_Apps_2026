@@ -25,7 +25,6 @@
   gap: 12px;
 }
 .sim-top .chip { pointer-events: auto; justify-self: start; }
-.sim-top .sim-sound { justify-self: end; }
 .sim-modes { display: flex; flex-wrap: wrap; gap: 8px; justify-self: center; justify-content: center; }
 .sim-modes .chip { justify-self: auto; }
 .sim-mode[aria-pressed="true"] { background: rgba(255, 138, 92, 0.38); border-color: rgba(255, 190, 150, 0.95); }
@@ -68,5 +67,4 @@ body.detail-on #btn-sim { display: none !important; }
   .sim-top { grid-template-columns: 1fr; }
   .sim-modes { justify-self: stretch; }
   .sim-modes .chip { flex: 1; }
-  .sim-top .sim-sound { justify-self: start; }
 }

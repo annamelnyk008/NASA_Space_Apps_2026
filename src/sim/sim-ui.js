@@ -15,7 +15,7 @@ function stormInfo(v) {
       ['Feels like on Earth', '≈ ' + fmt(p.earthEq, 1) + ' m/s breeze'],
       ['Direct sunlight at ground', sun]
     ],
-    note: 'Mars air is about 60 times thinner than Earth’s, so even fast gusts push gently and will not knock you over, and the wind sounds like a low, muffled rumble. The real dangers are fine dust that clogs equipment and the loss of sunlight for solar panels. Global storms like the one in 2018 can last for weeks.'
+    note: 'Mars air is about 60 times thinner than Earth’s, so even fast gusts push gently and will not knock you over, The real dangers are fine dust that clogs equipment and the loss of sunlight for solar panels. Global storms like the one in 2018 can last for weeks.'
   };
 }
 
@@ -58,13 +58,12 @@ function quakeInfo(v) {
       ['Shaking', felt],
       ['InSight record', '> 1,300 quakes, largest ≈ M 4.7']
     ],
-    note: 'NASA’s InSight lander listened to Mars from 2018 to 2022. Most quakes were small (about M 2–3), caused by the crust slowly cracking as the planet cools; a few came from under Cerberus Fossae. Thin air carries almost no sound, so you would feel the ground move rather than hear it; the low rumble here is an artistic rendering. Real events repeat far less often than this simulation shows.'
+    note: 'NASA’s InSight lander listened to Mars from 2018 to 2022. Most quakes were small (about M 2–3), caused by the crust slowly cracking as the planet cools; a few came from under Cerberus Fossae. Thin air carries almost no sound, so you would feel the ground move rather than hear it. Real events repeat far less often than this simulation shows.'
   };
 }
 
 export function createSimUI(o) {
-  const { openBtn, scene, backBtn, sim, audio } = o;
-  const soundBtn = scene.querySelector('#sim-sound');
+  const { openBtn, scene, backBtn, sim } = o;
   const modeBtns = Array.prototype.slice.call(scene.querySelectorAll('.sim-mode'));
   const slider = scene.querySelector('#sim-level');
   const out = scene.querySelector('#sim-val');
@@ -112,7 +111,6 @@ export function createSimUI(o) {
     scene.hidden = false;
     document.body.classList.add('sim-on');
     sim.start();
-    if (audio) audio.start();
   }
   function close() {
     if (!isOpen) return;
@@ -122,7 +120,6 @@ export function createSimUI(o) {
     openBtn.setAttribute('aria-pressed', 'false');
     openBtn.blur();
     sim.stop();
-    if (audio) audio.stop();
   }
   openBtn.addEventListener('click', open);
   backBtn.addEventListener('click', close);
@@ -135,17 +132,6 @@ export function createSimUI(o) {
       sim.setScenario(sim.get().scenario === m ? null : m);
     });
   });
-  function syncSound() {
-    if (!soundBtn || !audio) return;
-    const on = audio.isEnabled();
-    soundBtn.setAttribute('aria-pressed', String(on));
-    soundBtn.textContent = on ? 'Sound: on' : 'Sound: off';
-  }
-  if (soundBtn) {
-    if (!audio) soundBtn.hidden = true;
-    soundBtn.addEventListener('click', function () { audio.setEnabled(!audio.isEnabled()); syncSound(); });
-    syncSound();
-  }
   slider.addEventListener('input', function () { sim.setValue(parseInt(slider.value, 10)); });
   return { open, close, isOpen: () => isOpen };
 }
