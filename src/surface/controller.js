@@ -1,6 +1,6 @@
 // surface/controller.js — dropExplorer, closeSurface, updateSurface, surfSun, applySurfTex, loadSurfHeight
 import { THREE } from '../core/three.js';
-import { D2R, PANO_MIN_FOV } from '../config.js';
+import { D2R, PANO_MIN_FOV, SURF_FOG_MIN_FOV, SURF_FOG_ZOOM, SURF_FOG_RATE } from '../config.js';
 import { HEAVY } from '../app/device.js';
 import { wait } from '../lib/async.js';
 import { sunFor } from '../data/marsSolar.js';
@@ -30,8 +30,6 @@ export function createSurfaceController(deps) {
     geo,
     clearPressed,
     flyTo,
-    saveLandView,
-    restoreLandView,
     showFact,
     setArmed,
     siteHeightKm,
@@ -50,6 +48,7 @@ export function createSurfaceController(deps) {
     yaw: 0,
     pitch: 0.07,
     fov: 70,
+    fogK: 1,        // текущая (сглаженная) густота дымки при зуме
     tOff: 0,
     play: false,
     tex: -1,
@@ -178,9 +177,27 @@ export function createSurfaceController(deps) {
       if (surf.ss) surfHudApi.surfHud();
     }
 
+    // Туман при приближении: в панораме (fov >= PANO_MIN_FOV) он зашит с множителем 1; при зуме глубже
+    // множитель плавно растёт по smoothstep до 1 + SURF_FOG_ZOOM и догоняет цель экспоненциально,
+    // поэтому ни ступенек при щелчках колеса, ни скачка на границе панорама ↔ живой вид нет.
+    const panoNow = surf.panoReady && surf.fov >= PANO_MIN_FOV;
+    let fogT = 1;
+    if (!panoNow) {
+      const z = Math.max(0, Math.min(1, (PANO_MIN_FOV - surf.fov) / (PANO_MIN_FOV - SURF_FOG_MIN_FOV)));
+      fogT = 1 + SURF_FOG_ZOOM * z * z * (3 - 2 * z);
+    }
+    const fogPrev = surf.fogK;
+    if (panoNow) surf.fogK = 1;
+    else {
+      surf.fogK += (fogT - surf.fogK) * (1 - Math.exp(-dt * SURF_FOG_RATE));
+      if (Math.abs(fogT - surf.fogK) < 0.003) surf.fogK = fogT;
+    }
+    const fogMoving = surf.fogK !== fogPrev;
+
     const renderDirty = getRenderDirty();
     const changed =
       renderDirty ||
+      fogMoving ||
       surf.panoSwap ||
       surf.yaw !== sLast.yaw ||
       surf.pitch !== sLast.pitch ||
@@ -238,6 +255,7 @@ export function createSurfaceController(deps) {
     u.uView.value.set(surf.yaw, surf.pitch);
     u.uScr.value.set(th, asp);
     u.uPx.value = (2 * th) / Math.max(1, size.height);
+    u.uFog.value = surf.fogK;
     if (surf.perfWarm > 0) {
       surf.perfWarm--;
       return 1;
@@ -271,7 +289,6 @@ export function createSurfaceController(deps) {
 
   function dropExplorer(lonDeg, latDeg) {
     if (getTransitioning() || getMode() !== 'mars') return;
-    if (saveLandView) saveLandView();   // запомнить вид глобуса — вернёмся к нему из closeSurface
     setTransitioning(true);
     setArmed(false);
     showFact();
@@ -292,6 +309,7 @@ export function createSurfaceController(deps) {
         });
         surf.tOff = 0;
         surf.fov = 70;
+        surf.fogK = 1;
         surf.pitch = 0.07;
         surf.tex = -1;
         surf.panoReady = false;
@@ -388,7 +406,7 @@ export function createSurfaceController(deps) {
         tex.state.texCur = -1;
         tex.applyTexLevel();
         geo.updateGeoLod();
-        if (!(restoreLandView && restoreLandView())) flyTo(lonDeg, latDeg, 2.3);   // камера — в исходное положение
+        flyTo(lonDeg, latDeg, 2.3);
         renderer.domElement.style.cursor = 'grab';
         return wait(100);
       })

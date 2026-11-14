@@ -42,6 +42,7 @@ export function createSurfaceScene(deps) {
         uView: { value: new THREE.Vector2(0, 0) },
         uScr: { value: new THREE.Vector2(0.7, 1.6) },
         uPx: { value: pano ? 2 * Math.PI / (HEAVY ? 4096 : 2048) : 0.001 },
+        uFog: { value: 1 },   // панорама всегда с uFog = 1; живой вид меняет его при зуме (surface/controller.js)
         uStar: { value: new THREE.Matrix3() }
       },
       vertexShader: SURF_VERT,

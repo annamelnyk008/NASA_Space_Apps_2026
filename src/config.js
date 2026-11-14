@@ -18,5 +18,8 @@ export var MAX_GEO = 1;
 export var DET_WIN = 1024, DET_PAD = 64, DET_TOT = DET_WIN + 2 * DET_PAD;   // = DET_N, DET_P, DET_T в шейдере
 
 export var PANO_MIN_FOV = 38;      // при сильном приближении — живая трассировка
+export var SURF_FOG_MIN_FOV = 18;     // угол зума, на котором туман достигает максимума (= нижняя граница clampFov)
+export var SURF_FOG_ZOOM = 1.4;       // прибавка к густоте дымки при максимальном приближении (1 + 1.4 = ×2.4)
+export var SURF_FOG_RATE = 5;         // скорость сглаживания тумана, 1/с (больше — быстрее)
 
 export var FLAT_D0 = 1.05, FLAT_K = 4.0, FLAT_S_MIN = 0.04;
