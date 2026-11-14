@@ -36,6 +36,7 @@ function nearestPlace(lon, lat) {
   let best = null;
   for (let i = 0; i < PLACES.length; i++) {
     const p = PLACES[i];
+    if (p.moon) continue;                       // луны не лежат на поверхности
     const d = haversineKm(lon, lat, p.lon, p.lat);
     if (!best || d < best.d) best = { name: p.name, d };
   }
@@ -404,7 +405,7 @@ export function createMarks(deps) {
     on = !!on;
     if (on === armed) return;
     armed = on;
-    btnMark.setAttribute('aria-pressed', String(on));
+    if (btnMark) btnMark.setAttribute('aria-pressed', String(on));
     if (on && getPegArmed()) setPegArmed(false);
     if (marsHint) marsHint.textContent = on ? HINT_ARMED : getMarsHintText();
     const marsMat = getMarsMat();
@@ -413,7 +414,7 @@ export function createMarks(deps) {
     if (onDirty) onDirty();
   }
 
-  btnMark.addEventListener('click', function () {
+  if (btnMark) btnMark.addEventListener('click', function () {
     if (getMode() === 'mars' && !getTransitioning()) setArmed(!armed);
   });
 
