@@ -17,8 +17,7 @@
 .detail-exit {
   position: fixed;
   z-index: 40;
-  left: 50%;
-  transform: translateX(-50%);
+  left: max(16px, env(safe-area-inset-left, 0px));
   top: max(16px, env(safe-area-inset-top, 0px));
   pointer-events: auto;
 }
@@ -43,7 +42,11 @@ body.detail-on #btn-peg,
 body.detail-on #lh-wrap,
 body.detail-on #btn-view,
 body.detail-on #btn-layout,
-body.detail-on #mars-hint {
+body.detail-on #mars-hint,
+body.detail-on #mars-tag,
+body.detail-on .mu-status,
+body.detail-on .mu-bottom,
+body.detail-on #legend {
   display: none !important;
 }
 
