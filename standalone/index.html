@@ -1,11 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Mars Explorer</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Солнечная система</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&display=swap">
   <link rel="stylesheet" href="./styles/variables.css">
   <link rel="stylesheet" href="./styles/base.css">
   <link rel="stylesheet" href="./styles/mars-tag.css">
@@ -19,11 +18,9 @@
   <link rel="stylesheet" href="./styles/surface.css">
 </head>
 <body>
-  <div id="stage" role="img" aria-label="Анимированная 3D-модель солнечной системы: Солнце, восемь планет и пояс астероидов"></div>
+<div id="stage" role="img" aria-label="Анимированная 3D-модель солнечной системы: Солнце, восемь планет и пояс астероидов"></div>
 
-<button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model"
-  class="tag-btn fixed left-0 top-0 z-10 flex flex-col items-center select-none"
-  style="pointer-events:none; transform: translateX(-100px)">
+<button id="mars-tag" type="button" aria-label="Discover Mars: open the detailed 3D model" class="tag-btn" style="pointer-events:none">
   <span class="tag-pill">Discover</span>
   <svg class="tag-arrow" viewBox="0 0 24 32" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M12 3v23M4.5 18.5 12 27l7.5-8.5"/>
@@ -34,7 +31,7 @@
   <div class="mu-top">
     <button id="mars-back" type="button" class="chip">&larr; Solar system</button>
     <div class="mu-status">
-      <p class="mu-hint">Drag to rotate &middot; scroll or pinch to zoom &middot; drag the Explorer onto the planet to stand there</p>
+      <p class="mu-hint">Drag to rotate &middot; scroll or pinch to zoom &middot; drag the Explorer onto the planet to stand there &middot; click a flag for details</p>
       <p class="mu-line" id="mars-sun"></p>
       <p class="mu-line" id="mars-sector"></p>
       <p class="mu-line mu-home" id="mars-home" hidden></p>
@@ -79,7 +76,7 @@
         <button type="button" id="btn-peg" class="chip tool peg" aria-pressed="false" title="Drag onto the planet, or click and then click a spot">
           <svg viewBox="0 0 24 32" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7" r="5"/><path d="M4 30c0-9 2.5-15 8-15s8 6 8 15z"/></svg>Explorer
         </button>
-        <button type="button" id="btn-home" class="chip tool peg" aria-pressed="false" title="Choose your home sector">
+        <button type="button" id="btn-home" class="chip tool peg" aria-pressed="false" title="Place your home flag on an exact spot">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h5v-6h3v6h5V10"/></svg>Home
         </button>
         <button type="button" id="btn-view" class="view-switch" role="switch" aria-checked="false" aria-label="Map view: 3D globe or flat map" title="Switch between the 3D globe and a flat map">
@@ -216,6 +213,6 @@
 
 <div id="fallback" hidden>Не удалось запустить WebGL. Откройте страницу в браузере с поддержкой WebGL.</div>
 
-  <script src="./mars-explorer.js"></script>
+<script src="./mars-explorer.js"></script>
 </body>
 </html>
