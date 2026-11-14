@@ -24,8 +24,8 @@ Built with plain JavaScript, [three.js](https://threejs.org/) and [Vite](https:/
 Requirements: **Node.js 18+** and a browser with **WebGL**. Internet access is needed for NASA map tiles.
 
 ```bash
-git clone <your-repository-url> mars-explorer
-cd mars-explorer
+git clone https://github.com/annamelnyk008/NASA_Space_Apps_2026.git
+cd NASA_Space_Apps_2026
 npm install
 npm run dev
 ```
