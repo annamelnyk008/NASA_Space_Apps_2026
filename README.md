@@ -2,7 +2,7 @@
 
 An interactive 3D model of Mars that runs in the browser. Start from the Solar System, open a detailed globe (or a flat map), switch data layers, and **land on any spot** to look around from the surface under a real-time Sun and Martian sky.
 
-Built with plain JavaScript, [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No backend, no framework.
+Built with plain JavaScript, [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/).
 
 <!-- Add a screenshot or GIF here, for example: -->
 <!-- ![Mars Explorer](docs/images/screenshot.png) -->
@@ -35,9 +35,9 @@ Other commands:
 
 | Command | What it does |
 |---------|--------------|
-| `npm run build:standalone` | Production build into `dist/standalone` |
+| `npm run build:standalone` | Production build into `standalone/dist` |
 
-See [Getting Started](getting_started.md) for the full setup, troubleshooting and the files the app needs.
+See [Getting Started](docs/getting_started.md) for the full setup, troubleshooting and the files the app needs.
 
 ## Controls
 
@@ -77,7 +77,7 @@ src/
   shaders/          GLSL programs
 ```
 
-Folder names are taken from the code's import paths. See [Architecture](architecture.md) for details.
+Folder names are taken from the code's import paths. See [Architecture](docs/architecture.md) for details.
 
 ## Data and Credits
 
