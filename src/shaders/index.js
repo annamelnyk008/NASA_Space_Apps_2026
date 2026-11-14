@@ -5,6 +5,7 @@ import marsCommonGlsl from './mars-common.glsl?raw';
 import marsFlatVertGlsl from './mars-flat.vert?raw';
 import marsFragGlsl from './mars.frag?raw';
 import markersPlacesGlsl from './markers-places.glsl?raw';
+import markersRoutesGlsl from './markers-routes.glsl?raw';
 import marsVertGlsl from './mars.vert?raw';
 import noiseGlsl from './noise.glsl?raw';
 import surfaceBodyGlsl from './surface-body.glsl?raw';
@@ -18,7 +19,7 @@ var MARS_COMMON = NOISE_GLSL + marsCommonGlsl;
 
 export var MARS_VERT = MARS_COMMON + marsVertGlsl;
 
-export var MARS_FRAG = markersPlacesGlsl + marsFragGlsl;
+export var MARS_FRAG = markersPlacesGlsl + markersRoutesGlsl + marsFragGlsl;
 
 export var MARS_ATMO_VERT = marsAtmoVertGlsl;
 export var MARS_ATMO_FRAG = marsAtmoFragGlsl;

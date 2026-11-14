@@ -37,6 +37,12 @@ export function createMarsMaterials({ sunObj }) {
       uMode: { value: 0 },
       uBlank: { value: 0 },
       uPlace: { value: new THREE.Vector4(0, 0, 0, 0) },
+      // маршрут (markers/routes.js): точки A/B, до 64 вершин пути, ограничивающий круг
+      uRtA: { value: new THREE.Vector3() },
+      uRtB: { value: new THREE.Vector3() },
+      uRtInfo: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uRtBound: { value: new THREE.Vector4(0, 0, 0, -2) },
+      uRt: { value: Array.from({ length: 64 }, () => new THREE.Vector3()) },
       uGrid: { value: 0 },
       uCell: { value: new THREE.Vector4(0, 0, 0, 0) },
       uHome: { value: new THREE.Vector4(0, 0, 0, 0) }

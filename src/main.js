@@ -25,6 +25,10 @@ import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
 import { createPlacesSection } from './markers/places.js';
+import { createRoutesSection } from './markers/routes.js';
+import { createElevationSource } from './markers/route-elevation.js';
+import { heightField } from './data/heightField.js';
+import { TS } from './data/tiles.js';
 
 import { createSurfaceScene } from './surface/scene.js';
 import { createPano } from './surface/pano.js';
@@ -78,6 +82,7 @@ import { setupInput } from './app/input.js';
     sidePanel: document.getElementById('side-panel'),
     poiList: document.getElementById('poi-list'),
     placeInfo: document.getElementById('place-info'),
+    routeBody: document.getElementById('route-body'),
     ovLoadingEl: document.getElementById('ov-loading'),
     btnLayout: document.getElementById('btn-layout'),
     layoutPop: document.getElementById('layout-pop'),
@@ -267,6 +272,16 @@ import { setupInput } from './app/input.js';
           if (marsMat) marsMat.uniforms.uPlace.value.set(p ? p.lon * D : 0, p ? p.lat * D : 0, p ? p.ring * D : 0, p ? 1 : 0);
           markDirty();
         }
+      }),
+      createRoutesSection({
+        host: ui.routeBody,
+        getTransitioning: () => state.transitioning,
+        pickMars: (cx, cy) => pick.pickMars(cx, cy),
+        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        getMarsMat: () => marsMat,
+        markDirty,
+        heightField: createElevationSource(heightField, TS),
+        tileSize: TS
       })
     ]
   });

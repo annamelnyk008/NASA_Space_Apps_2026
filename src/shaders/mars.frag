@@ -420,5 +420,6 @@ void main(){
     lit = mix(lit, pink, edgeH * 0.95);
   }
   lit = placeHighlight(lit, vUv);
+  lit = routeOverlay(lit, vUv);
   gl_FragColor = vec4(lit, 1.0);
 }

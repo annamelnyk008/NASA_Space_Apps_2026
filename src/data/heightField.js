@@ -28,15 +28,16 @@ function decodeHeightTile(im, tsz, mode) {
   return e;
 }
 // собирает прямоугольник [sx0,sx0+sw)×[sy0,sy0+sh) уровня zh слоя высот (тайлы своего размера) в Float32Array
-function layerField(zh, sx0, sy0, sw, sh) {
-  var cfg = TILES.height, T = cfg.tileSize || TS, out = new Float32Array(sw * sh), ok = 0;
+function layerField(zh, sx0, sy0, sw, sh, layer) {
+  layer = layer || 'height';
+  var cfg = TILES[layer], T = cfg.tileSize || TS, out = new Float32Array(sw * sh), ok = 0;
   var cols = Math.pow(2, zh + 1), rows = Math.pow(2, zh);
   var c0 = Math.floor(sx0 / T), c1 = Math.floor((sx0 + sw - 1) / T);
   var r0 = Math.max(0, Math.floor(sy0 / T)), r1 = Math.min(rows - 1, Math.floor((sy0 + sh - 1) / T));
   var jobs = [];
   for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) (function (r, c) {
     var cw = ((c % cols) + cols) % cols;
-    jobs.push(loadTileImg(tileUrl('height', zh, r, cw)).then(function (im) {
+    jobs.push(loadTileImg(tileUrl(layer, zh, r, cw)).then(function (im) {
       if (!im) return;
       var te = decodeHeightTile(im, T, cfg.decode); if (!te) return;
       ok++;
@@ -44,19 +45,21 @@ function layerField(zh, sx0, sy0, sw, sh) {
       for (var y = Math.max(0, -oy); y < Math.min(T, sh - oy); y++) for (var x = Math.max(0, -ox); x < Math.min(T, sw - ox); x++) out[(oy + y) * sw + ox + x] = te[y * T + x];
     }));
   })(r, c);
-  return Promise.all(jobs).then(function () { return { e: out, ok: ok }; });
+  return Promise.all(jobs).then(function () { return { e: out, ok: ok, n: jobs.length }; });
 }
 // поле высот (км) прямоугольника [gx0,gx0+w)×[gy0,gy0+h) в сетке уровня z (ширина 2^(z+1)·TS px).
 // Берётся ближайший по детализации уровень слоя, дальше — билинейное пересэмплирование ПО КМ (не по R/G-кодировке).
-export function heightField(z, gx0, gy0, w, h) {
-  var cfg = TILES.height, T = cfg.tileSize || TS;
+// layer: 'height' (локальная пирамида 16 бит) или 'elevColor' (раскраска MOLA ClrShade из Mars Trek — высота восстанавливается по цвету)
+export function heightField(z, gx0, gy0, w, h, layer) {
+  layer = layer || 'height';
+  var cfg = TILES[layer], T = cfg.tileSize || TS;
   var Wz = Math.pow(2, z + 1) * TS, zh = 0;
   while (zh < (cfg.zMax || TILES.zMax) && Math.pow(2, zh + 1) * T < Wz) zh++;
   var Wh = Math.pow(2, zh + 1) * T, Hh = Wh / 2, g = Wh / Wz;
   var sx0 = Math.max(0, Math.floor(gx0 * g) - 1), sy0 = Math.max(0, Math.floor(gy0 * g) - 1);
   var sx1 = Math.min(Wh, Math.ceil((gx0 + w) * g) + 2), sy1 = Math.min(Hh, Math.ceil((gy0 + h) * g) + 2);
   var sw = Math.max(2, sx1 - sx0), sh = Math.max(2, sy1 - sy0);
-  return layerField(zh, sx0, sy0, sw, sh).then(function (src) {
+  return layerField(zh, sx0, sy0, sw, sh, layer).then(function (src) {
     var out = new Float32Array(w * h);
     for (var y = 0; y < h; y++) {
       var fy = Math.max(sy0, Math.min(sy0 + sh - 1.001, (gy0 + y + 0.5) * g - 0.5)) - sy0;
@@ -67,7 +70,7 @@ export function heightField(z, gx0, gy0, w, h) {
         out[y * w + x] = (src.e[i0] * (1 - tx) + src.e[i0 + 1] * tx) * (1 - ty) + (src.e[i0 + sw] * (1 - tx) + src.e[i0 + sw + 1] * tx) * ty;
       }
     }
-    return { e: out, ok: src.ok, f: Math.max(1, 1 / g) };
+    return { e: out, ok: src.ok, n: src.n, f: Math.max(1, 1 / g) };
   });
 }
 // гауссово размытие поля (сепарабельное), σ в пикселях
