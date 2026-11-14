@@ -30,6 +30,8 @@ export function createSurfaceController(deps) {
     geo,
     clearPressed,
     flyTo,
+    saveLandView,
+    restoreLandView,
     showFact,
     setArmed,
     siteHeightKm,
@@ -289,6 +291,7 @@ export function createSurfaceController(deps) {
 
   function dropExplorer(lonDeg, latDeg) {
     if (getTransitioning() || getMode() !== 'mars') return;
+    if (saveLandView) saveLandView();   // запомнить вид глобуса — вернёмся к нему из closeSurface
     setTransitioning(true);
     setArmed(false);
     showFact();
@@ -406,7 +409,7 @@ export function createSurfaceController(deps) {
         tex.state.texCur = -1;
         tex.applyTexLevel();
         geo.updateGeoLod();
-        flyTo(lonDeg, latDeg, 2.3);
+        if (!(restoreLandView && restoreLandView())) flyTo(lonDeg, latDeg, 2.3);   // камера — в исходное положение
         renderer.domElement.style.cursor = 'grab';
         return wait(100);
       })

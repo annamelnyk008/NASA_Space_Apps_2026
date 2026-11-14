@@ -21,6 +21,9 @@ import { createMarsTransitions } from './mars/transitions.js';
 import { createHome } from './mars/home.js';
 import { createLanding } from './mars/landing.js';
 import { createDetail } from './mars/detail.js';
+import { createSim } from './sim/sim.js';
+import { createSimUI } from './sim/sim-ui.js';
+import { createSimAudio } from './sim/sim-audio.js';
 import { createPeg } from './mars/peg.js';
 import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
@@ -635,6 +638,16 @@ import { setupInput } from './app/input.js';
     getSurf: () => surfaceController.getSurf(),
     getFlatOn: () => flatView.getFlatOn(),
     flatView
+  });
+
+  // ---- Simulation: отдельная сцена (плоская земля + марсианское небо) ----
+  const sim = createSim({ canvas: document.getElementById('sim-canvas') });
+  createSimUI({
+    openBtn: document.getElementById('btn-sim'),
+    scene: document.getElementById('sim-scene'),
+    backBtn: document.getElementById('sim-back'),
+    sim,
+    audio: createSimAudio(sim)
   });
 
   // ---- 16. RAF ----
