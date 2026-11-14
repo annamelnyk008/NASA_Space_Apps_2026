@@ -77,6 +77,7 @@ import { setupInput } from './app/input.js';
     sideToggle: document.getElementById('side-toggle'),
     sidePanel: document.getElementById('side-panel'),
     poiList: document.getElementById('poi-list'),
+    placeInfo: document.getElementById('place-info'),
     ovLoadingEl: document.getElementById('ov-loading'),
     btnLayout: document.getElementById('btn-layout'),
     layoutPop: document.getElementById('layout-pop'),
@@ -256,9 +257,14 @@ import { setupInput } from './app/input.js';
     sections: [
       createPlacesSection({
         list: ui.poiList,
+        info: ui.placeInfo,
         getTransitioning: () => state.transitioning,
-        clearPressed: () => controls.clearPressed(),
-        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
+        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        setHighlight: (p) => {
+          const D = Math.PI / 180;
+          if (marsMat) marsMat.uniforms.uPlace.value.set(p ? p.lon * D : 0, p ? p.lat * D : 0, p ? p.ring * D : 0, p ? 1 : 0);
+          markDirty();
+        }
       })
     ]
   });

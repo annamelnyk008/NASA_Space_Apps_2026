@@ -419,5 +419,6 @@ void main(){
     lit = mix(lit, pink, inH * 0.14 + glow * 0.22);
     lit = mix(lit, pink, edgeH * 0.95);
   }
+  lit = placeHighlight(lit, vUv);
   gl_FragColor = vec4(lit, 1.0);
 }

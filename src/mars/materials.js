@@ -36,6 +36,7 @@ export function createMarsMaterials({ sunObj }) {
       uSunObj: { value: sunObj.clone() },
       uMode: { value: 0 },
       uBlank: { value: 0 },
+      uPlace: { value: new THREE.Vector4(0, 0, 0, 0) },
       uGrid: { value: 0 },
       uCell: { value: new THREE.Vector4(0, 0, 0, 0) },
       uHome: { value: new THREE.Vector4(0, 0, 0, 0) }

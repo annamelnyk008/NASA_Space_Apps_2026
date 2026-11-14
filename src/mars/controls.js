@@ -36,8 +36,7 @@ export function createMarsControls(deps) {
   let gridOn = false;
 
   function clearPressed() {
-    // кнопки быстрого перехода внизу и список мест в панели Markers
-    const bs = document.querySelectorAll('#mars-nav button, #poi-list button');
+    const bs = document.querySelectorAll('#mars-nav button');
     for (let i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', 'false');
   }
 
