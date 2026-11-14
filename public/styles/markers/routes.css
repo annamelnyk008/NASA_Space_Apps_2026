@@ -1,0 +1,82 @@
+/* Панель «Markers» → раздел «Routes» */
+.route-body { margin: 6px 0 4px; padding: 0 2px; }
+.route-body[hidden] { display: none; }
+
+.rt-rows { position: relative; display: flex; flex-direction: column; gap: 8px; padding-right: 34px; }
+.rt-row { display: flex; align-items: center; gap: 8px; }
+
+.rt-badge {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 700 13px/1 var(--font-display); color: #fff;
+}
+.rt-badge-a { background: #1ab85c; }
+.rt-badge-b { background: #f53d33; }
+
+.rt-input {
+  flex: 1; min-width: 0; box-sizing: border-box;
+  padding: 9px 12px;
+  font: 600 15px/1.2 var(--font-display);
+  color: var(--side-ink, #14224d);
+  background: #fff; border: 2px solid #e3e8f5; border-radius: 12px;
+}
+.rt-input::placeholder { color: #9aa5c4; font-weight: 500; }
+.rt-input:focus { outline: none; border-color: var(--side-accent, #ff6a3a); }
+.rt-input[aria-invalid="true"] { border-color: #e5484d; background: #fff5f5; }
+
+.rt-pin, .rt-swap {
+  flex: none; display: grid; place-items: center;
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  color: var(--side-muted, #5a6891);
+  background: #f1f4fb; border: 2px solid transparent; border-radius: 10px;
+}
+.rt-pin:hover, .rt-swap:hover { background: #e6ebf7; }
+.rt-pin[aria-pressed="true"] { color: #fff; background: var(--side-accent, #ff6a3a); }
+.rt-swap { position: absolute; right: 0; top: 50%; transform: translateY(-50%); border-radius: 50%; width: 30px; height: 30px; }
+
+.rt-actions { display: flex; gap: 8px; margin-top: 12px; }
+.rt-go, .rt-clear {
+  padding: 10px 14px; cursor: pointer;
+  font: 700 15px/1 var(--font-display); border-radius: 12px; border: 2px solid transparent;
+}
+.rt-go { flex: 1; color: #fff; background: var(--side-accent, #ff6a3a); }
+.rt-go:disabled { opacity: 0.7; cursor: progress; }
+.rt-clear { color: var(--side-muted, #5a6891); background: #f1f4fb; }
+.rt-clear:hover { background: #e6ebf7; }
+.rt-input:focus-visible, .rt-pin:focus-visible, .rt-swap:focus-visible, .rt-go:focus-visible, .rt-clear:focus-visible {
+  outline: 3px solid var(--side-accent, #ff6a3a); outline-offset: 2px;
+}
+
+.rt-msg { margin: 8px 2px 0; font: 500 13.5px/1.35 var(--font-display); color: var(--side-muted, #5a6891); }
+.rt-msg[hidden] { display: none; }
+.rt-msg.rt-warn { color: #c2342d; }
+
+.rt-result { margin-top: 10px; padding: 12px; color: var(--side-ink, #14224d); background: #f6f8fd; border: 2px solid #e3e8f5; border-radius: 14px; }
+.rt-result[hidden] { display: none; }
+.rt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rt-len { font: 700 26px/1.1 var(--font-display); }
+.rt-diff { padding: 3px 10px; font: 700 12px/1.2 var(--font-display); letter-spacing: 0.04em; text-transform: uppercase; border-radius: 999px; }
+.rt-diff-easy { color: #0b6b34; background: #d6f5e2; }
+.rt-diff-moderate { color: #8a5a00; background: #ffecc2; }
+.rt-diff-challenging { color: #a1241e; background: #ffd9d6; }
+.rt-sub { margin: 4px 0 0; font: 500 13px/1.35 var(--font-display); color: var(--side-muted, #5a6891); }
+
+.rt-stats { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 12px 0 0; font: 500 14px/1.25 var(--font-display); }
+.rt-stats dt { color: var(--side-muted, #5a6891); }
+.rt-stats dd { margin: 0; font-weight: 700; text-align: right; }
+
+.rt-profile { display: block; width: 100%; height: auto; margin-top: 12px; touch-action: none; }
+.rt-area { fill: rgba(47, 123, 255, 0.16); }
+.rt-line { fill: none; stroke: #2f7bff; stroke-width: 2; stroke-linejoin: round; }
+.rt-axis { font: 600 9px var(--font-display); fill: #7a86a8; }
+.rt-tip { font: 700 10px var(--font-display); fill: var(--side-ink, #14224d); }
+.rt-dot-a { fill: #1ab85c; stroke: #fff; stroke-width: 1.5; }
+.rt-dot-b { fill: #f53d33; stroke: #fff; stroke-width: 1.5; }
+.rt-guide { stroke: #7a86a8; stroke-width: 1; stroke-dasharray: 3 3; }
+.rt-hover { fill: #fff; stroke: #2f7bff; stroke-width: 2; }
+
+.rt-note { margin: 10px 0 0; font: 500 13px/1.4 var(--font-display); }
+.rt-note.rt-small { font-size: 11.5px; color: var(--side-muted, #5a6891); }
+.rt-note.rt-warn { color: #8a5a00; }
+
+body.rt-picking, body.rt-picking canvas { cursor: crosshair !important; }

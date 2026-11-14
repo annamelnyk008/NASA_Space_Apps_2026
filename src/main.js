@@ -26,6 +26,10 @@ import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
 import { createPlacesSection } from './markers/places.js';
 import { createMarks, createMarksSection } from './markers/marks.js';
+import { createRoutesSection } from './markers/routes.js';
+import { createElevationSource } from './markers/route-elevation.js';
+import { heightField } from './data/heightField.js';
+import { TS } from './data/tiles.js';
 
 import { createSurfaceScene } from './surface/scene.js';
 import { createPano } from './surface/pano.js';
@@ -79,6 +83,8 @@ import { setupInput } from './app/input.js';
     sideToggle: document.getElementById('side-toggle'),
     sidePanel: document.getElementById('side-panel'),
     poiList: document.getElementById('poi-list'),
+    placeInfo: document.getElementById('place-info'),
+    routeBody: document.getElementById('route-body'),
     ovLoadingEl: document.getElementById('ov-loading'),
     btnLayout: document.getElementById('btn-layout'),
     layoutPop: document.getElementById('layout-pop'),
@@ -259,9 +265,35 @@ import { setupInput } from './app/input.js';
     sections: [
       createPlacesSection({
         list: ui.poiList,
+        info: ui.placeInfo,
         getTransitioning: () => state.transitioning,
-        clearPressed: () => controls.clearPressed(),
-        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
+        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        getMoonDirection: (name) => {
+          // текущее направление на луну в системе координат планеты (долгота/широта «под луной»)
+          const m = marsMoons.find((x) => x.def.name === name);
+          if (!m || !marsSpin) return null;
+          marsSpin.updateMatrixWorld(true);
+          const v = m.mesh.getWorldPosition(new THREE.Vector3()).applyMatrix4(new THREE.Matrix4().copy(marsSpin.matrixWorld).invert());
+          const len = v.length() || 1;
+          return { lon: Math.atan2(-v.z, v.x) * 180 / Math.PI, lat: Math.asin(Math.max(-1, Math.min(1, v.y / len))) * 180 / Math.PI };
+        },
+        saveView: () => controls.saveView(),
+        restoreView: () => controls.restoreView(),
+        setHighlight: (p) => {
+          const D = Math.PI / 180;
+          if (marsMat) marsMat.uniforms.uPlace.value.set(p ? p.lon * D : 0, p ? p.lat * D : 0, p ? p.ring * D : 0, p ? 1 : 0);
+          markDirty();
+        }
+      }),
+      createRoutesSection({
+        host: ui.routeBody,
+        getTransitioning: () => state.transitioning,
+        pickMars: (cx, cy) => pick.pickMars(cx, cy),
+        flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist),
+        getMarsMat: () => marsMat,
+        markDirty,
+        heightField: createElevationSource(heightField, TS),
+        tileSize: TS
       })
     ]
   });

@@ -36,8 +36,7 @@ export function createMarsControls(deps) {
   let gridOn = false;
 
   function clearPressed() {
-    // кнопки быстрого перехода внизу и список мест в панели Markers
-    const bs = document.querySelectorAll('#mars-nav button, #poi-list button');
+    const bs = document.querySelectorAll('#mars-nav button');
     for (let i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', 'false');
   }
 
@@ -51,6 +50,24 @@ export function createMarsControls(deps) {
     mv.userZoomed = true;
     mv.vSpin = 0;
     mv.vPitch = 0;
+  }
+
+  // Запомнить текущий вид (для возврата из «Мест интереса») и вернуться к нему
+  let savedView = null;
+  function saveView() {
+    savedView = { spin: mv.spin, pitch: mv.pitch, dist: mv.dist, auto: mv.auto, userZoomed: mv.userZoomed };
+  }
+  function restoreView() {
+    if (!savedView) return;
+    mv.tSpin = savedView.spin;
+    mv.tPitch = savedView.pitch;
+    mv.tDist = clampDist(savedView.dist);
+    mv.fly = true;
+    mv.auto = false;
+    mv.userZoomed = savedView.userZoomed;
+    mv.vSpin = 0;
+    mv.vPitch = 0;
+    savedView = null;
   }
 
   function startView() {
@@ -245,6 +262,8 @@ export function createMarsControls(deps) {
   return {
     clearPressed,
     flyTo,
+    saveView,
+    restoreView,
     startView,
     resetMarsView,
     zoomBy,
