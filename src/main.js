@@ -25,7 +25,7 @@ import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
 import { createPlacesSection } from './markers/places.js';
-import { createMarks, createMarksSection } from './markers/marks.js';
+import { createMarks, createMarksSection, createLandingHistory } from './markers/marks.js';
 import { createRoutesSection } from './markers/routes.js';
 import { createElevationSource } from './markers/route-elevation.js';
 import { heightField } from './data/heightField.js';
@@ -117,7 +117,10 @@ import { setupInput } from './app/input.js';
     pegGhost: document.getElementById('peg-ghost'),
     marsHint: null, // заполним ниже
     // home / marks
-    btnMark: document.getElementById('btn-mark'),
+    btnMark: null,   // кнопки Mark больше нет: «Add mark» — в панели Markers → User marks
+    lhWrap: document.getElementById('lh-wrap'),
+    lhBtn: document.getElementById('btn-landhist'),
+    lhPop: document.getElementById('lh-pop'),
     markList: document.getElementById('mark-list'),
     homeEl: document.getElementById('mars-home'),
     surfHomeEl: document.getElementById('surf-home'),
@@ -438,6 +441,18 @@ import { setupInput } from './app/input.js';
     list: ui.markList,
     marksApi: marks,
     getHomeApi: () => home,
+    getMode: () => state.mode,
+    getTransitioning: () => state.transitioning,
+    clearPressed: () => controls.clearPressed(),
+    flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
+  });
+
+  createLandingHistory({
+    wrap: ui.lhWrap,
+    btn: ui.lhBtn,
+    pop: ui.lhPop,
+    pegBtn: ui.btnPeg || document.getElementById('btn-peg'),
+    marksApi: marks,
     getTransitioning: () => state.transitioning,
     clearPressed: () => controls.clearPressed(),
     flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)

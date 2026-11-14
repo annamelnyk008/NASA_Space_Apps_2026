@@ -1,7 +1,9 @@
 // markers/marks.js — метки на карте Марса и режим «Mark».
-//  • Режим Mark (кнопка #btn-mark): пока он включён, клик по планете/карте ставит метку в любом месте;
-//    повторное нажатие кнопки или Esc выходят из режима.
-//  • Метка «visit» создаётся сама, когда игрок побывал на поверхности (surface).
+//  • «User marks»: кнопка «Add mark» в панели Markers включает режим добавления; клик по планете/карте
+//    открывает форму (название, заметка, категория: дом / еда / вода / опасность / информация),
+//    «Save» ставит метку. Вид пина зависит от категории. Esc или повторное нажатие — отмена.
+//  • Метка «visit» создаётся сама, когда игрок побывал на поверхности (surface); список таких меток —
+//    «Landing history» над кнопкой Explorer (createLandingHistory).
 //  • Домашняя точка (mars/home.js) тоже рисуется пином — розовым; её можно назначить из карточки любой метки.
 // Клик по пину открывает карточку: название (можно переименовать), координаты, высота, температура,
 // местное время, ближайшее известное место, расстояние до дома. Из карточки: сделать домом,
@@ -21,7 +23,19 @@ const R_MARS_KM = 3389.5;
 const NEAR_KM = 1500;           // дальше — «ближайшее место» не показываем
 const DRAG_PX = 6;
 
-const HINT_ARMED = 'Mark mode: click anywhere to drop a mark · click a mark for details · press Mark or Esc to finish';
+const HINT_ARMED = 'Add mark: click anywhere on the planet to place it · fill in the form · Esc to cancel';
+const NOTE_MAX = 200;
+
+// Категории пользовательских меток: цвет пина (CSS: .cat-<id>) и значок внутри пина
+const CATS = {
+  info:   { label: 'Info' },
+  home:   { label: 'Home' },
+  food:   { label: 'Food' },
+  water:  { label: 'Water' },
+  danger: { label: 'Danger' }
+};
+const CAT_IDS = Object.keys(CATS);
+const catOf = (c) => (CATS[c] ? c : 'info');
 
 function haversineKm(lon1, lat1, lon2, lat2) {
   const p1 = lat1 * D2R;
@@ -57,8 +71,36 @@ function fmtDate(t) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// значки внутри пина (viewBox 24×34, центр головки — (12, 11.8)); цвет — --pin-in
+function glyph(cat) {
+  const g = document.createElementNS(SVG_NS, 'g');
+  const add = (tag, attrs) => {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    g.appendChild(el);
+    return el;
+  };
+  const ink = 'var(--pin-in)';
+  const stroke = { fill: 'none', stroke: ink, 'stroke-width': '1.7', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+  if (cat === 'home') {
+    add('path', { d: 'M12 5.6 18.8 11.4H17V17.6H7V11.4H5.2Z', fill: ink });
+  } else if (cat === 'water') {
+    add('path', { d: 'M12 5.4C12 5.4 7.4 10.2 7.4 13.2a4.6 4.6 0 0 0 9.2 0C16.6 10.2 12 5.4 12 5.4Z', fill: ink });
+  } else if (cat === 'food') {
+    add('path', Object.assign({ d: 'M8.9 6V10.2a1.9 1.9 0 0 0 3.8 0V6M10.8 6V17.8' }, stroke));
+    add('path', Object.assign({ d: 'M15.6 17.8V6C13.9 7.2 13.4 9.7 13.4 12.6H15.6' }, stroke));
+  } else if (cat === 'danger') {
+    add('path', { d: 'M12 5.4 19 17.9H5Z', fill: ink });
+    add('path', { d: 'M12 9.9V13.6', stroke: 'var(--pin)', 'stroke-width': '1.8', 'stroke-linecap': 'round' });
+    add('circle', { cx: '12', cy: '15.9', r: '1', fill: 'var(--pin)' });
+  } else {
+    add('circle', { cx: '12', cy: '11.8', r: '4.3', fill: ink });
+  }
+  return g;
+}
+
 // тот же силуэт, что у .lp-pin в index.html, но цвета берутся из --pin / --pin-in
-function pinSvg() {
+function pinSvg(cat) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 34');
   svg.setAttribute('aria-hidden', 'true');
@@ -67,13 +109,8 @@ function pinSvg() {
   path.setAttribute('fill', 'var(--pin)');
   path.setAttribute('stroke', '#fff');
   path.setAttribute('stroke-width', '1.6');
-  const dot = document.createElementNS(SVG_NS, 'circle');
-  dot.setAttribute('cx', '12');
-  dot.setAttribute('cy', '11.8');
-  dot.setAttribute('r', '4.3');
-  dot.setAttribute('fill', 'var(--pin-in)');
   svg.appendChild(path);
-  svg.appendChild(dot);
+  svg.appendChild(glyph(cat || 'info'));
   return svg;
 }
 
@@ -124,11 +161,14 @@ export function createMarks(deps) {
         lat: +m.lat,
         t: +m.t || Date.now(),
         n: Math.max(0, +m.n || 0),
-        name: typeof m.name === 'string' ? m.name.slice(0, 32) : ''
+        name: typeof m.name === 'string' ? m.name.slice(0, 32) : '',
+        cat: catOf(m.cat),
+        note: typeof m.note === 'string' ? m.note.slice(0, NOTE_MAX) : ''
       }));
   } catch (e) { /* ignore */ }
 
   let armed = false;
+  let draft = null;     // { lon, lat, cat } — метка, которую пользователь ещё заполняет
   let selKey = null;
   let sig = '';
   let cardT = 0;
@@ -171,6 +211,10 @@ export function createMarks(deps) {
     '<div class="mk-ttl"><input class="mk-name" type="text" maxlength="32" spellcheck="false" aria-label="Mark name">' +
     '<p class="mk-sub"></p></div>' +
     '<button type="button" class="mk-x" aria-label="Close">&times;</button></div>' +
+    '<div class="mk-edit">' +
+    '<div class="mk-cats" role="radiogroup" aria-label="Category"></div>' +
+    '<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="2" spellcheck="false" placeholder="Add a note…" aria-label="Note"></textarea>' +
+    '</div>' +
     '<dl class="mk-rows">' +
     '<dt>Coordinates</dt><dd data-r="coord"></dd>' +
     '<dt>Elevation</dt><dd data-r="elev"></dd>' +
@@ -187,6 +231,56 @@ export function createMarks(deps) {
     '</div>';
   root.appendChild(card);
 
+  // форма новой метки
+  const form = document.createElement('div');
+  form.className = 'mk-card mk-form';
+  form.hidden = true;
+  form.setAttribute('role', 'dialog');
+  form.setAttribute('aria-label', 'New mark');
+  form.innerHTML =
+    '<div class="mk-head"><i class="mk-dot"></i>' +
+    '<div class="mk-ttl"><input class="mk-name" type="text" maxlength="32" spellcheck="false" aria-label="Mark name" placeholder="Name">' +
+    '<p class="mk-sub">New mark</p></div>' +
+    '<button type="button" class="mk-x" aria-label="Cancel">&times;</button></div>' +
+    '<div class="mk-edit">' +
+    '<div class="mk-cats" role="radiogroup" aria-label="Category"></div>' +
+    '<textarea class="mk-note" maxlength="' + NOTE_MAX + '" rows="3" spellcheck="false" placeholder="Add a note…" aria-label="Note"></textarea>' +
+    '</div>' +
+    '<div class="mk-btns"><button type="button" class="chip lp-go" data-a="save">Save</button>' +
+    '<button type="button" class="chip" data-a="cancel">Cancel</button></div>';
+  root.appendChild(form);
+  const fName = form.querySelector('.mk-name');
+  const fSub = form.querySelector('.mk-sub');
+  const fCats = form.querySelector('.mk-cats');
+  const fNote = form.querySelector('.mk-note');
+
+  function buildCats(host, onPick) {
+    CAT_IDS.forEach((id) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mk-cat cat-' + id;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', 'false');
+      b.setAttribute('data-cat', id);
+      b.title = CATS[id].label;
+      const ic = document.createElementNS(SVG_NS, 'svg');
+      ic.setAttribute('viewBox', '0 0 24 34');
+      ic.setAttribute('aria-hidden', 'true');
+      ic.appendChild(glyph(id));
+      b.appendChild(ic);
+      const t = document.createElement('span');
+      t.textContent = CATS[id].label;
+      b.appendChild(t);
+      b.addEventListener('click', () => onPick(id));
+      host.appendChild(b);
+    });
+  }
+  function markCats(host, cat) {
+    host.querySelectorAll('.mk-cat').forEach((b) => {
+      b.setAttribute('aria-checked', String(b.getAttribute('data-cat') === cat));
+    });
+  }
+
   const q = (s) => card.querySelector(s);
   const elName = q('.mk-name');
   const elSub = q('.mk-sub');
@@ -194,6 +288,9 @@ export function createMarks(deps) {
   card.querySelectorAll('[data-r]').forEach((dd) => {
     rowEls[dd.getAttribute('data-r')] = { dd, dt: dd.previousElementSibling };
   });
+  const elEdit = q('.mk-edit');
+  const elCats = q('.mk-cats');
+  const elNote = q('.mk-note');
   const btnLand = q('[data-a="land"]');
   const btnHomeAct = q('[data-a="home"]');
   const btnDel = q('[data-a="del"]');
@@ -207,23 +304,25 @@ export function createMarks(deps) {
       const m = marks[i];
       // метка, совпавшая с домом, рисуется одним (домашним) пином
       if (home && Math.abs(wrap180(m.lon - home.lon)) <= SAME_DEG && Math.abs(m.lat - home.lat) <= SAME_DEG) continue;
-      list.push({ key: 'm:' + m.id, kind: m.kind, id: m.id, lon: m.lon, lat: m.lat });
+      list.push({ key: 'm:' + m.id, kind: m.kind, cat: m.kind === 'visit' ? 'visit' : m.cat, id: m.id, lon: m.lon, lat: m.lat });
     }
-    if (home) list.push({ key: 'home', kind: 'home', id: 'home', lon: home.lon, lat: home.lat });
+    if (home) list.push({ key: 'home', kind: 'home', cat: 'home', id: 'home', lon: home.lon, lat: home.lat });
+    if (draft) list.push({ key: 'draft', kind: 'mark', cat: draft.cat, id: 'draft', lon: draft.lon, lat: draft.lat, draft: true });
     return list;
   }
 
   function makeEl(it) {
     const el = document.createElement('div');
-    el.className = 'mk ' + it.kind;
+    el.className = 'mk ' + it.kind + ' cat-' + it.cat + (it.draft ? ' draft' : '');
     el.style.visibility = 'hidden';
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mk-btn';
     b.setAttribute('aria-label', it.kind === 'home' ? 'Home mark' : 'Mark');
-    b.appendChild(pinSvg());
+    b.appendChild(pinSvg(it.cat));
     b.addEventListener('click', function (e) {
       e.stopPropagation();
+      if (it.draft) return;
       select(selKey === it.key ? null : it.key);
     });
     el.appendChild(b);
@@ -233,7 +332,7 @@ export function createMarks(deps) {
 
   function refresh() {
     const list = desired();
-    const s = list.map((i) => i.key + '@' + i.lon + ',' + i.lat).join('|');
+    const s = list.map((i) => i.key + '@' + i.lon + ',' + i.lat + ':' + i.cat).join('|');
     if (s === sig) return;
     sig = s;
     const keep = new Set();
@@ -241,9 +340,16 @@ export function createMarks(deps) {
       keep.add(d.key);
       let it = items.get(d.key);
       if (!it) {
-        it = { key: d.key, kind: d.kind, id: d.id, el: null, vis: null };
+        it = { key: d.key, kind: d.kind, cat: d.cat, draft: !!d.draft, id: d.id, el: null, vis: null };
         it.el = makeEl(it);
         items.set(d.key, it);
+      } else if (it.cat !== d.cat) {
+        // категория сменилась — перерисовываем значок и класс
+        it.cat = d.cat;
+        it.el.className = 'mk ' + it.kind + ' cat-' + it.cat + (it.draft ? ' draft' : '') + (it.key === selKey ? ' sel' : '');
+        const btn = it.el.querySelector('.mk-btn');
+        btn.textContent = '';
+        btn.appendChild(pinSvg(it.cat));
       }
       it.lon = d.lon;
       it.lat = d.lat;
@@ -283,14 +389,23 @@ export function createMarks(deps) {
     const homeApi = getHomeApi();
     const isHome = it.kind === 'home';
     const m = markNear(it.lon, it.lat);
+    CAT_IDS.forEach((c) => card.classList.remove('cat-' + c));
     card.classList.remove('visit', 'home');
     if (isHome) card.classList.add('home');
     else if (it.kind === 'visit') card.classList.add('visit');
+    else card.classList.add('cat-' + (m ? m.cat : 'info'));
+    const editable = !!m && m.kind === 'mark' && !isHome;
+    elEdit.hidden = !editable;
+    if (editable) {
+      markCats(elCats, m.cat);
+      if (document.activeElement !== elNote) elNote.value = m.note || '';
+    }
 
     if (document.activeElement !== elName) elName.value = isHome ? 'Home' : markName(m || {});
     elName.readOnly = isHome;
     const np = nearestPlace(it.lon, it.lat);
-    elSub.textContent = np ? (np.d < 40 ? 'At ' : '≈ ' + fmtDist(np.d) + ' from ') + np.name : 'Uncharted terrain';
+    const nearTxt = np ? (np.d < 40 ? 'At ' : '≈ ' + fmtDist(np.d) + ' from ') + np.name : 'Uncharted terrain';
+    elSub.textContent = editable ? CATS[m.cat].label + ' · ' + nearTxt : nearTxt;
 
     setRow('coord', fmtLonLatPrecise(it.lon, it.lat, 3));
     const h = siteHeightKm(it.lon, it.lat);
@@ -348,6 +463,29 @@ export function createMarks(deps) {
   });
   elName.addEventListener('blur', function () {
     if (selKey) fillCard();
+  });
+
+  buildCats(elCats, function (cat) {
+    const it = selKey ? items.get(selKey) : null;
+    const m = it ? marks.find((x) => x.id === it.id) : null;
+    if (!m || m.kind !== 'mark') return;
+    m.cat = cat;
+    save();
+    sig = '';
+    refresh();
+    fillCard();
+  });
+  elNote.addEventListener('keydown', function (e) {
+    e.stopPropagation();
+    if (e.key === 'Escape') { elNote.blur(); select(null); }
+  });
+  elNote.addEventListener('change', function () {
+    const it = selKey ? items.get(selKey) : null;
+    const m = it ? marks.find((x) => x.id === it.id) : null;
+    if (!m) return;
+    m.note = elNote.value.trim().slice(0, NOTE_MAX);
+    save();
+    emit();
   });
 
   btnHomeAct.addEventListener('click', function () {
@@ -411,12 +549,71 @@ export function createMarks(deps) {
     const marsMat = getMarsMat();
     if (marsMat) marsMat.uniforms.uGrid.value = (on || getGridOn()) ? 1 : 0;
     if (getMode() === 'mars') canvas.style.cursor = on ? 'crosshair' : 'grab';
+    if (!on && draft) cancelDraft();
     if (onDirty) onDirty();
+    emit();
   }
 
   if (btnMark) btnMark.addEventListener('click', function () {
     if (getMode() === 'mars' && !getTransitioning()) setArmed(!armed);
   });
+
+  // ---- форма новой метки ----
+  let formCat = 'info';
+  function setFormCat(c) {
+    formCat = catOf(c);
+    markCats(fCats, formCat);
+    CAT_IDS.forEach((id) => form.classList.remove('cat-' + id));
+    form.classList.add('cat-' + formCat);
+    if (draft) {
+      draft.cat = formCat;
+      refresh();
+    }
+  }
+  buildCats(fCats, setFormCat);
+
+  function startDraft(lon, lat) {
+    const first = !draft;
+    draft = { lon: round3(wrap180(lon)), lat: round3(Math.max(-89.9, Math.min(89.9, lat))), cat: first ? 'info' : draft.cat };
+    if (first) {
+      fName.value = '';
+      fNote.value = '';
+      fName.placeholder = defaultName({ kind: 'mark' });
+      form.hidden = false;
+      setFormCat('info');
+    }
+    sig = '';
+    refresh();
+    if (first) setTimeout(() => { try { fName.focus(); } catch (e) { /* ignore */ } }, 0);
+    if (onDirty) onDirty();
+  }
+  function cancelDraft() {
+    if (!draft) return;
+    draft = null;
+    form.hidden = true;
+    sig = '';
+    refresh();
+    if (onDirty) onDirty();
+  }
+  function saveDraft() {
+    if (!draft) return;
+    const d = draft;
+    const m = addMark(d.lon, d.lat, { name: fName.value.trim() || fName.placeholder, note: fNote.value.trim(), cat: d.cat });
+    draft = null;
+    form.hidden = true;
+    setArmed(false);
+    sig = '';
+    refresh();
+    if (m) select('m:' + m.id);
+  }
+  form.querySelector('[data-a="save"]').addEventListener('click', saveDraft);
+  form.querySelector('[data-a="cancel"]').addEventListener('click', () => setArmed(false));
+  form.querySelector('.mk-x').addEventListener('click', () => setArmed(false));
+  [fName, fNote].forEach((el) => el.addEventListener('keydown', function (e) {
+    e.stopPropagation();
+    if (e.key === 'Escape') setArmed(false);
+    else if (e.key === 'Enter' && el === fName) saveDraft();
+  }));
 
   // Esc: сначала закрываем карточку, потом выходим из режима (capture — раньше обработчика «назад» в input.js)
   window.addEventListener(
@@ -445,7 +642,7 @@ export function createMarks(deps) {
     if (!armed || getTransitioning()) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > DRAG_PX) return;
     const hit = pickMars(e.clientX, e.clientY);
-    if (hit) addMark(hit.lon, hit.lat);
+    if (hit) startDraft(hit.lon, hit.lat);
   });
 
   // ---- добавление ----
@@ -454,7 +651,8 @@ export function createMarks(deps) {
   }
 
   /** Поставить свою метку (градусы, восток +). Возвращает метку. */
-  function addMark(lonDeg, latDeg) {
+  function addMark(lonDeg, latDeg, opts) {
+    opts = opts || {};
     const lon = round3(wrap180(lonDeg));
     const lat = round3(Math.max(-89.9, Math.min(89.9, latDeg)));
     const same = markNear(lon, lat);
@@ -466,15 +664,29 @@ export function createMarks(deps) {
       lat,
       t: Date.now(),
       n: 0,
-      name: ''
+      name: '',
+      cat: catOf(opts.cat),
+      note: typeof opts.note === 'string' ? opts.note.slice(0, NOTE_MAX) : ''
     };
-    m.name = defaultName(m);
+    m.name = (opts.name || '').slice(0, 32) || defaultName(m);
     marks.push(m);
     if (marks.length > MAX_MARKS) marks.shift();
     save();
     sig = '';
     refresh();
     return m;
+  }
+
+  /** Удалить метку по id (из списка/истории, без перезагрузки). */
+  function removeMark(id) {
+    const before = marks.length;
+    marks = marks.filter((m) => m.id !== id);
+    if (marks.length === before) return false;
+    save();
+    if (selKey === 'm:' + id) select(null);
+    sig = '';
+    refresh();
+    return true;
   }
 
   /** Вызывается, когда игрок побывал на поверхности в точке (градусы, восток +). */
@@ -493,7 +705,9 @@ export function createMarks(deps) {
         lat,
         t: Date.now(),
         n: 1,
-        name: 'Landing site'
+        name: 'Landing site',
+        cat: 'info',
+        note: ''
       });
       if (marks.length > MAX_MARKS) marks.shift();
     }
@@ -540,12 +754,13 @@ export function createMarks(deps) {
     root.hidden = !on;
   }
 
-  function placeCard(x, y, W, H) {
-    const cw = card.offsetWidth || 244;
-    const ch = card.offsetHeight || 250;
+  function placeCard(x, y, W, H, el) {
+    el = el || card;
+    const cw = el.offsetWidth || 244;
+    const ch = el.offsetHeight || 250;
     const left = x + 26 + cw > W - 8 ? x - cw - 22 : x + 26;
     const top = Math.max(8, Math.min(H - 8 - ch, y - ch * 0.5 - 18));
-    card.style.transform = 'translate3d(' + left.toFixed(1) + 'px,' + top.toFixed(1) + 'px,0)';
+    el.style.transform = 'translate3d(' + left.toFixed(1) + 'px,' + top.toFixed(1) + 'px,0)';
   }
 
   function update(dt) {
@@ -558,6 +773,7 @@ export function createMarks(deps) {
     const W = window.innerWidth;
     const H = window.innerHeight;
     let selVisible = false;
+    let formVisible = false;
     items.forEach((it) => {
       const ok = project(it.lon, it.lat, P) && P.x > -40 && P.x < W + 40 && P.y > -40 && P.y < H + 80;
       if (ok !== it.vis) {
@@ -568,9 +784,14 @@ export function createMarks(deps) {
       it.el.style.transform = 'translate3d(' + P.x.toFixed(1) + 'px,' + P.y.toFixed(1) + 'px,0)';
       if (it.key === selKey) {
         selVisible = true;
-        placeCard(P.x, P.y, W, H);
+        placeCard(P.x, P.y, W, H, card);
+      }
+      if (it.key === 'draft') {
+        formVisible = true;
+        placeCard(P.x, P.y, W, H, form);
       }
     });
+    form.style.visibility = draft && formVisible ? 'visible' : 'hidden';
     card.style.visibility = selKey && selVisible ? 'visible' : 'hidden';
     if (selKey) {
       cardT -= dt || 0.016;
@@ -590,12 +811,14 @@ export function createMarks(deps) {
   return {
     addMark,
     addVisit,
+    removeMark,
     refresh,
     update,
     hide,
     select,
     setArmed,
     getArmed: () => armed,
+    getCats: () => CATS,
     getMarks: () => marks.slice(),
     onChange: (f) => { listeners.push(f); },
     focusMark: (id) => {
@@ -605,18 +828,21 @@ export function createMarks(deps) {
   };
 }
 
-// ---- раздел «My marks» панели Markers (по образцу places.js) ----
+// ---- раздел «User marks» панели Markers (по образцу places.js) ----
 /**
+ * Кнопка «Add mark» + список пользовательских меток (и дом, если назначен).
  * @param {object} deps
  * @param {HTMLElement} deps.list        <ul id="mark-list">
  * @param {object} deps.marksApi         результат createMarks
  * @param {function} deps.getHomeApi
+ * @param {function} deps.getMode
  * @param {function} deps.getTransitioning
  * @param {function} deps.clearPressed
  * @param {function} deps.flyTo          (lon, lat, dist)
  */
-export function createMarksSection({ list, marksApi, getHomeApi, getTransitioning, clearPressed, flyTo }) {
+export function createMarksSection({ list, marksApi, getHomeApi, getMode, getTransitioning, clearPressed, flyTo }) {
   if (!list || !marksApi) return null;
+  const cats = marksApi.getCats();
 
   function row(label, note, cls, lon, lat, id) {
     const li = document.createElement('li');
@@ -636,33 +862,74 @@ export function createMarksSection({ list, marksApi, getHomeApi, getTransitionin
     b.appendChild(dot);
     b.appendChild(tx);
     li.appendChild(b);
+    if (id) li.appendChild(delBtn(id, label));
     return li;
   }
 
+  function delBtn(id, label) {
+    const d = document.createElement('button');
+    d.type = 'button';
+    d.className = 'mk-del';
+    d.setAttribute('data-del', id);
+    d.setAttribute('aria-label', 'Delete ' + label);
+    d.title = 'Delete';
+    d.textContent = '×';
+    return d;
+  }
+
+  const addLi = document.createElement('li');
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'mk-add';
+  addBtn.setAttribute('aria-pressed', 'false');
+  addBtn.innerHTML = '<span class="mk-plus" aria-hidden="true">+</span><span class="mk-add-t">Add mark</span>';
+  addLi.appendChild(addBtn);
+  const listHost = document.createElement('ul');
+  listHost.className = 'mk-items';
+
   let lastSig = '';
   function render() {
+    const armed = marksApi.getArmed();
+    addBtn.setAttribute('aria-pressed', String(armed));
+    addBtn.querySelector('.mk-add-t').textContent = armed ? 'Click on the planet… (Esc to cancel)' : 'Add mark';
     const homeApi = getHomeApi();
     const home = homeApi ? homeApi.getHome() : null;
-    const ms = marksApi.getMarks();
-    const sig = JSON.stringify([home, ms.map((m) => [m.id, m.name, m.lon, m.lat])]);
+    const ms = marksApi.getMarks().filter((m) => m.kind === 'mark');
+    const sig = JSON.stringify([home, ms.map((m) => [m.id, m.name, m.cat, m.lon, m.lat])]);
     if (sig === lastSig) return;
     lastSig = sig;
-    list.textContent = '';
-    if (home) list.appendChild(row('Home', fmtLonLatPrecise(home.lon, home.lat), 'home', home.lon, home.lat, ''));
+    listHost.textContent = '';
+    if (home) listHost.appendChild(row('Home', fmtLonLatPrecise(home.lon, home.lat), 'home', home.lon, home.lat, ''));
     ms.slice().reverse().forEach((m) => {
-      list.appendChild(row(m.name || (m.kind === 'visit' ? 'Landing site' : 'Mark'), fmtLonLatPrecise(m.lon, m.lat), m.kind, m.lon, m.lat, m.id));
+      listHost.appendChild(row(m.name || 'Mark', cats[m.cat].label + ' · ' + fmtLonLatPrecise(m.lon, m.lat), 'cat-' + m.cat, m.lon, m.lat, m.id));
     });
-    if (!list.firstChild) {
+    if (!listHost.firstChild) {
       const li = document.createElement('li');
       li.className = 'mk-empty';
-      li.textContent = 'No marks yet — press Mark on the map and click anywhere';
-      list.appendChild(li);
+      li.textContent = 'No marks yet — press “Add mark”, then click a spot on the planet';
+      listHost.appendChild(li);
     }
   }
 
-  list.addEventListener('click', function (e) {
+  list.textContent = '';
+  list.appendChild(addLi);
+  const itemsLi = document.createElement('li');
+  itemsLi.appendChild(listHost);
+  list.appendChild(itemsLi);
+
+  addBtn.addEventListener('click', function () {
+    if (getMode() !== 'mars' || getTransitioning()) return;
+    marksApi.setArmed(!marksApi.getArmed());
+  });
+
+  listHost.addEventListener('click', function (e) {
     const b = e.target.closest ? e.target.closest('button') : null;
-    if (!b || getTransitioning()) return;
+    if (!b) return;
+    if (b.classList.contains('mk-del')) {
+      marksApi.removeMark(b.getAttribute('data-del'));
+      return;
+    }
+    if (getTransitioning()) return;
     clearPressed();
     const lon = parseFloat(b.getAttribute('data-lon'));
     const lat = parseFloat(b.getAttribute('data-lat'));
@@ -674,4 +941,102 @@ export function createMarksSection({ list, marksApi, getHomeApi, getTransitionin
   marksApi.onChange(render);
   render();
   return { id: 'marks', list };
+}
+
+// ---- «Landing history»: кнопка над Explorer, пока он включён ----
+/**
+ * @param {object} deps
+ * @param {HTMLElement} deps.wrap     контейнер .lh-wrap (скрыт, пока Explorer не активен)
+ * @param {HTMLElement} deps.btn      кнопка «Landing history»
+ * @param {HTMLElement} deps.pop      выпадающий список
+ * @param {HTMLElement} deps.pegBtn   кнопка Explorer (#btn-peg)
+ */
+export function createLandingHistory({ wrap, btn, pop, pegBtn, marksApi, getTransitioning, flyTo, clearPressed }) {
+  if (!wrap || !btn || !pop || !pegBtn || !marksApi) return null;
+
+  function open(on) {
+    pop.hidden = !on;
+    btn.setAttribute('aria-expanded', String(on));
+    btn.setAttribute('aria-pressed', String(on));
+    if (on) render();
+  }
+
+  function render() {
+    const vs = marksApi.getMarks().filter((m) => m.kind === 'visit').sort((a, b) => b.t - a.t);
+    pop.textContent = '';
+    const head = document.createElement('p');
+    head.className = 'lh-title';
+    head.textContent = 'Landing history';
+    pop.appendChild(head);
+    if (!vs.length) {
+      const e = document.createElement('p');
+      e.className = 'lh-empty';
+      e.textContent = 'No landings yet — drop the Explorer on the planet and press “Land here”.';
+      pop.appendChild(e);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'lh-list';
+    vs.forEach((m, i) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lh-item';
+      b.setAttribute('data-id', m.id);
+      b.setAttribute('data-lon', m.lon);
+      b.setAttribute('data-lat', m.lat);
+      const t = document.createElement('span');
+      t.className = 'lh-name';
+      t.textContent = (m.name || 'Landing site') + (vs.length > 1 ? ' #' + (vs.length - i) : '');
+      const sm = document.createElement('small');
+      sm.textContent = fmtLonLatPrecise(m.lon, m.lat) + ' · ' + (m.n > 1 ? m.n + '× · ' : '') + fmtDate(m.t);
+      b.appendChild(t);
+      b.appendChild(sm);
+      li.appendChild(b);
+      const d = document.createElement('button');
+      d.type = 'button';
+      d.className = 'mk-del';
+      d.setAttribute('data-del', m.id);
+      d.setAttribute('aria-label', 'Delete ' + t.textContent);
+      d.title = 'Delete';
+      d.textContent = '×';
+      li.appendChild(d);
+      ul.appendChild(li);
+    });
+    pop.appendChild(ul);
+  }
+
+  function sync() {
+    const on = pegBtn.getAttribute('aria-pressed') === 'true';
+    wrap.hidden = !on;
+    if (!on) open(false);
+  }
+
+  btn.addEventListener('click', () => open(pop.hidden));
+  pop.addEventListener('click', function (e) {
+    const del = e.target.closest ? e.target.closest('.mk-del') : null;
+    if (del) {
+      marksApi.removeMark(del.getAttribute('data-del')); // список перерисуется через onChange
+      return;
+    }
+    const b = e.target.closest ? e.target.closest('.lh-item') : null;
+    if (!b || getTransitioning()) return;
+    clearPressed();
+    flyTo(parseFloat(b.getAttribute('data-lon')), parseFloat(b.getAttribute('data-lat')), 1.6);
+    marksApi.focusMark(b.getAttribute('data-id'));
+    open(false);
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!pop.hidden && !wrap.contains(e.target)) open(false);
+  });
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !pop.hidden) {
+      e.stopPropagation();
+      open(false);
+    }
+  }, true);
+  marksApi.onChange(() => { if (!pop.hidden) render(); });
+  new MutationObserver(sync).observe(pegBtn, { attributes: true, attributeFilter: ['aria-pressed'] });
+  sync();
+  return { id: 'landing-history' };
 }
