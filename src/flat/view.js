@@ -80,7 +80,7 @@ export function createFlatView(deps) {
       mv.userZoomed = true;
       flatFly = null;
       labelsEl.style.visibility = 'hidden';
-      setMarsHintText('Drag to pan · scroll or pinch to zoom · Explorer and Home work on the map too');
+      setMarsHintText('Drag to pan · scroll or pinch to zoom · Explorer and Mark work on the map too');
       renderer.compile(flatScene, getMarsCam());
     } else {
       flatOn = false;

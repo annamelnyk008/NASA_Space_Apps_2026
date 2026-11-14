@@ -25,7 +25,7 @@ import { createPick } from './mars/pick.js';
 import { renderFact } from './mars/facts.js';
 import { createMarkers } from './markers/panel.js';
 import { createPlacesSection } from './markers/places.js';
-import { createFlags } from './markers/flags.js';
+import { createMarks, createMarksSection } from './markers/marks.js';
 
 import { createSurfaceScene } from './surface/scene.js';
 import { createPano } from './surface/pano.js';
@@ -110,8 +110,9 @@ import { setupInput } from './app/input.js';
     btnPeg: document.getElementById('btn-peg'),
     pegGhost: document.getElementById('peg-ghost'),
     marsHint: null, // заполним ниже
-    // home
-    btnHome: document.getElementById('btn-home'),
+    // home / marks
+    btnMark: document.getElementById('btn-mark'),
+    markList: document.getElementById('mark-list'),
     homeEl: document.getElementById('mars-home'),
     surfHomeEl: document.getElementById('surf-home'),
     // flat
@@ -246,7 +247,7 @@ import { setupInput } from './app/input.js';
     sunEl: ui.sunEl,
     lodEl: ui.lodEl,
     tex, tiles, geo, labels,
-    homeArmedRef: () => (home ? home.getHomeArmed() : false),
+    homeArmedRef: () => (marks ? marks.getArmed() : false),
     updateHome: () => { if (home) home.updateHome(); },
     onDirty: markDirty
   });
@@ -268,27 +269,17 @@ import { setupInput } from './app/input.js';
   // ---- 9. Марс: home / peg / landing ----
   let peg = null;                 // нужен до home (getPegArmed)
   let home = null;                // нужен до controls.homeArmedRef — сделан ленивым
-  let flags = null;               // флажки (создаются после landing); home и surface обращаются к ним лениво
+  let marks = null;               // метки и режим Mark (создаются после landing); остальные модули обращаются лениво
 
   home = createHome({
     getMarsMat: () => marsMat,
     siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),
     getSunInfo: () => sunInfo,
-    btnHome: ui.btnHome,
     homeEl: ui.homeEl,
     surfHomeEl: ui.surfHomeEl,
-    marsHint: ui.marsHint,
-    getMarsHintText,
-    setMarsHintText,
-    getMode: () => state.mode,
-    getTransitioning: () => state.transitioning,
-    renderer,
-    getGridOn: () => controls.getGridOn(),
-    setArmed: (on) => { if (peg) peg.setArmed(on); },
-    getPegArmed: () => (peg ? peg.getPegArmed() : false),
-    pickMars: (cx, cy) => pick.pickMars(cx, cy),
-    onHomeChange: () => { markDirty(); if (flags) flags.refresh(); }
+    onHomeChange: () => { markDirty(); if (marks) marks.refresh(); }
   });
+
 
   // surfaceController нужен landing и transitions; создаётся ниже
   let surfaceController = null;
@@ -302,8 +293,8 @@ import { setupInput } from './app/input.js';
     getMode: () => state.mode,
     getTransitioning: () => state.transitioning,
     renderer,
-    setHomeArmed: (on) => home.setHomeArmed(on),
-    getHomeArmed: () => home.getHomeArmed(),
+    setHomeArmed: (on) => { if (marks) marks.setArmed(on); },
+    getHomeArmed: () => (marks ? marks.getArmed() : false),
     pickMars: (cx, cy) => pick.pickMars(cx, cy),
     placePin: (lon, lat) => landing.placePin(lon, lat),
     clearPin: () => landing.clearPin()
@@ -334,7 +325,7 @@ import { setupInput } from './app/input.js';
     getShowMat: () => surfaceScene.getShowMat(),
     surfSun: () => surfaceController.surfSun()
   });
-
+  
   const surfaceMusic = createSurfaceMusic();
 
   surfaceMusic.load( 'assets/music/moxie-at-work.ogg');
@@ -364,7 +355,7 @@ import { setupInput } from './app/input.js';
     marsBack: ui.marsBack,
     getRenderDirty: () => state.renderDirty,
     setRenderDirty: (v) => { state.renderDirty = v; },
-    onVisit: (lon, lat) => { if (flags) flags.addVisit(lon, lat); }
+    onVisit: (lon, lat) => { if (marks) marks.addVisit(lon, lat); }
   });
 
   // ---- 11. Landing (после surfaceController — нужен dropExplorer) ----
@@ -387,9 +378,15 @@ import { setupInput } from './app/input.js';
     onDirty: markDirty
   });
 
-  // ---- 11b. Флажки: посещённые места + домашняя точка ----
-  flags = createFlags({
+  // ---- 11b. Метки: режим Mark, посещённые места, домашняя точка ----
+  marks = createMarks({
+    btnMark: ui.btnMark,
+    marsHint: ui.marsHint,
+    getMarsHintText,
     getMode: () => state.mode,
+    getTransitioning: () => state.transitioning,
+    getMarsMat: () => marsMat,
+    getGridOn: () => controls.getGridOn(),
     getMarsCam: () => marsCam,
     getMarsSpin: () => marsSpin,
     getFlatOn: () => flatView ? flatView.getFlatOn() : false,
@@ -397,10 +394,21 @@ import { setupInput } from './app/input.js';
     getSunInfo: () => sunInfo,
     siteHeightKm: (lon, lat) => pick.siteHeightKm(lon, lat),
     getHomeApi: () => home,
+    pickMars: (cx, cy) => pick.pickMars(cx, cy),
     dropExplorer: (lon, lat) => surfaceController.dropExplorer(lon, lat),
-    getTransitioning: () => state.transitioning,
-    canvas: renderer.domElement,
+    renderer,
+    getPegArmed: () => (peg ? peg.getPegArmed() : false),
+    setPegArmed: (on) => { if (peg) peg.setArmed(on); },
     onDirty: markDirty
+  });
+
+  createMarksSection({
+    list: ui.markList,
+    marksApi: marks,
+    getHomeApi: () => home,
+    getTransitioning: () => state.transitioning,
+    clearPressed: () => controls.clearPressed(),
+    flyTo: (lon, lat, dist) => controls.flyTo(lon, lat, dist)
   });
 
   // ---- 12. Марс: transitions ----
@@ -429,9 +437,9 @@ import { setupInput } from './app/input.js';
     updateReadout: () => controls.updateReadout(),
     marsBack: ui.marsBack,
     setArmed: (on) => peg.setArmed(on),
-    setHomeArmed: (on) => home.setHomeArmed(on),
+    setHomeArmed: (on) => { if (marks) marks.setArmed(on); },
     pegArmed: () => peg.getPegArmed(),
-    homeArmed: () => home.getHomeArmed(),
+    homeArmed: () => (marks ? marks.getArmed() : false),
 
     getMarsScene: () => marsScene,
     getMarsCam: () => marsCam,
@@ -474,7 +482,7 @@ import { setupInput } from './app/input.js';
     setMarsHintText,
     marsHintInitial,
     getPegArmed: () => peg.getPegArmed(),
-    getHomeArmed: () => home.getHomeArmed(),
+    getHomeArmed: () => (marks ? marks.getArmed() : false),
     btnView: ui.btnView,
     renderer,
     getMarsCam: () => marsCam,
@@ -530,11 +538,11 @@ import { setupInput } from './app/input.js';
       state.renderDirty = false;
       renderer.render(flatOn ? flatView.getFlatScene() : marsScene, marsCam);
       landing.updateLandPin();
-      flags.update(dt);
+      marks.update(dt);
       return;
     }
 
-    flags.hide();
+    marks.hide();
 
     if (state.mode === 'surface') {
       const sr = surfaceController.updateSurface(dt);

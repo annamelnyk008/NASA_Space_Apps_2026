@@ -1,12 +1,11 @@
-// mars/home.js — домашняя точка (флажок). Раньше это был сектор 1°×1° (~60 км),
-// теперь — точная точка lon/lat; подсветка в шейдере сжата до маленького пятна вокруг неё.
-// Сам флажок и карточку с информацией рисует markers/flags.js.
+// mars/home.js — домашняя точка. Раньше это был сектор 1°×1° (~60 км), теперь — точная точка lon/lat;
+// подсветка в шейдере сжата до маленького пятна вокруг неё.
+// Назначается из карточки метки (markers/marks.js: «Make home»); сам пин и карточку рисует marks.js.
 import { D2R } from '../config.js';
 import { fmtLonLatPrecise, fmtSigned } from '../lib/format.js';
 import { wrap180 } from '../lib/math.js';
 
 const HOME_BOX = 0.06;      // полуразмер подсветки в шейдере, °
-const CLEAR_DEG = 0.3;      // клик ближе этого к домашней точке — снимает её
 
 /**
  * @param {object} deps
@@ -16,23 +15,12 @@ export function createHome(deps) {
     getMarsMat,
     siteHeightKm,
     getSunInfo,
-    btnHome,
     homeEl,
     surfHomeEl,
-    marsHint,
-    getMarsHintText,
-    getMode,
-    getTransitioning,
-    renderer,
-    getGridOn,
-    setArmed,
-    getPegArmed,
-    pickMars,
-    onHomeChange // optional callback for renderDirty, перерисовки флажков и т.п.
+    onHomeChange // optional callback: renderDirty, перерисовка пинов и т.п.
   } = deps;
 
   let home = null;
-  let homeArmed = false;
 
   // новый формат — точка; старый ('marsHome2') — сектор 1°, берём его центр
   try {
@@ -127,7 +115,7 @@ export function createHome(deps) {
     } catch (err) { /* ignore */ }
   }
 
-  /** Поставить домашний флажок в точку (градусы, восток +). */
+  /** Назначить домашнюю точку (градусы, восток +). */
   function setHome(lonDeg, latDeg) {
     home = {
       lon: Math.round(wrap180(lonDeg) * 100) / 100,
@@ -150,48 +138,9 @@ export function createHome(deps) {
     return Math.abs(wrap180(lonDeg - home.lon)) <= tol && Math.abs(latDeg - home.lat) <= tol;
   }
 
-  function setHomeArmed(on) {
-    homeArmed = on;
-    btnHome.setAttribute('aria-pressed', String(on));
-    if (on && getPegArmed()) setArmed(false);
-    if (marsHint) {
-      marsHint.textContent = on
-        ? 'Click a spot to place your home flag (exact point) · click near it again to clear'
-        : getMarsHintText();
-    }
-    const marsMat = getMarsMat();
-    if (marsMat) marsMat.uniforms.uGrid.value = (on || getGridOn()) ? 1 : 0;
-    if (getMode() === 'mars') renderer.domElement.style.cursor = on ? 'crosshair' : 'grab';
-    if (onHomeChange) onHomeChange();
-  }
-
   function getHome() {
     return home;
   }
-  function getHomeArmed() {
-    return homeArmed;
-  }
-
-  // listeners
-  btnHome.addEventListener('click', function () {
-    if (getMode() === 'mars' && !getTransitioning()) setHomeArmed(!homeArmed);
-  });
-
-  const homeDown = { x: 0, y: 0 };
-  const cv = renderer.domElement;
-  cv.addEventListener('pointerdown', function (e) {
-    homeDown.x = e.clientX;
-    homeDown.y = e.clientY;
-  });
-  cv.addEventListener('click', function (e) {
-    if (getMode() !== 'mars' || !homeArmed || getTransitioning()) return;
-    if (Math.hypot(e.clientX - homeDown.x, e.clientY - homeDown.y) > 6) return;
-    const hit = pickMars(e.clientX, e.clientY);
-    if (!hit) return;
-    if (isHome(hit.lon, hit.lat, CLEAR_DEG)) clearHome();
-    else setHome(hit.lon, hit.lat);
-    setHomeArmed(false);
-  });
 
   return {
     homeTemp,
@@ -200,11 +149,9 @@ export function createHome(deps) {
     pointTemp,
     pointElev,
     updateHome,
-    setHomeArmed,
     setHome,
     clearHome,
     isHome,
-    getHome,
-    getHomeArmed
+    getHome
   };
 }
