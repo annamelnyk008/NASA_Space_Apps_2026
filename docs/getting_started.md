@@ -32,13 +32,12 @@ This guide gets the project running locally in about five minutes.
 The app also needs **internet access** while running:
 
 - map color tiles are loaded from NASA Mars Trek (`trek.nasa.gov`);
-- the Fredoka font is loaded from Google Fonts (the page falls back to system fonts if it is blocked).
 
 ## Installation
 
 ```bash
-git clone <your-repository-url> mars-explorer
-cd mars-explorer
+git clone https://github.com/annamelnyk008/NASA_Space_Apps_2026.git
+cd NASA_Space_Apps_2026
 npm install
 ```
 
@@ -75,11 +74,7 @@ If the planet looks like a plain rust-colored ball without surface detail, the c
 
 | Command | What it does |
 |---------|--------------|
-| `npm run dev` | Starts the Vite dev server with hot reload and the `/trek` proxy |
-| `npm run build` | Builds the production version into `dist/` |
-| `npm run build:standalone` | Builds with `standalone/vite.standalone.config.js` (a separate config; it must exist in your repo) |
-| `npm run preview` | Serves the built `dist/` locally, also with the `/trek` proxy |
-| `npm test` | Runs `node --test` (Node's built-in test runner) |
+| `npm run build:standalone` | Builds with `standalone/vite.standalone.config.js` |
 
 ## Configuration
 
