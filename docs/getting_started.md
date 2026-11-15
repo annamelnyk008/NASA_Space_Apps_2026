@@ -151,7 +151,7 @@ The renderer also lowers its pixel ratio automatically when the frame time stays
 ## Troubleshooting
 
 **The planet is a plain rust-colored ball**
-Color tiles failed to load. Open the developer tools, check the Network tab for requests to `/trek/...`, and make sure you are using `npm run dev` or `npm run preview` on `localhost` and can reach `trek.nasa.gov`. After editing `vite.config.js`, restart the server.
+Color tiles failed to load. Open the developer tools, check the Network tab for requests to `/trek/...`, and make sure you are using standalone build and can reach `trek.nasa.gov`. After editing `vite.config.js`, rebuild stand alone and open `index.html` from `/standalone/dist`.
 
 **The terrain is flat or the elevation layer looks wrong**
 Check that `assets/mars-height.png` and `assets/mars-height-surface.png` are served and have not been resized or recompressed.
@@ -167,9 +167,6 @@ The browser may block autoplay (a warning appears in the console). The music is 
 
 **The page shows a message that WebGL could not start**
 The browser or GPU driver does not provide WebGL. Try another browser, enable hardware acceleration, or update the driver. (This message and the page title are currently in Russian.)
-
-**Port 5173 is already in use**
-Run on another port: `npm run dev -- --port 3001`.
 
 **Strange errors after `npm install`**
 Reinstall from the lockfile:
