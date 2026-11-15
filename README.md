@@ -13,7 +13,7 @@ The code is plain JavaScript (ES modules) on three.js r128 and Vite.
 - **Eight data layers:** natural color, elevation (MOLA), modelled live surface temperature, roughness, global dust, plagioclase, sheet silicates / high-Si glass and thermal inertia.
 - **Grid, place labels and legend:** a 30° latitude/longitude grid with local solar time per sector, optional name labels on the planet, and color legends.
 
-**Places, marks and routes** (the **Markers** panel)
+**Places, marks and routes**
 - **Places of interest:** ten places plus the two moons, each with an information card, a highlight ring and a fly-to.
 - **User marks:** drop your own pins with a name, a note and a category (Info, Home, Food, Water, Danger). Mark one as your **Home**.
 - **Vehicles:** show NASA and ESA rovers on the planet.
@@ -32,7 +32,7 @@ The code is plain JavaScript (ES modules) on three.js r128 and Vite.
 Requirements: **Node.js 18+** and a browser with **WebGL**. Internet access is needed for NASA map tiles.
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/annamelnyk008/NASA_Space_Apps_2026.git
 cd NASA_Space_Apps_2026
 npm install
 npm run build:standalone
