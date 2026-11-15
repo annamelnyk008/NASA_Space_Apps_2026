@@ -12,7 +12,7 @@ const trekProxy = {
 };
 
 export default defineConfig({
-  base: './',                       // относительные пути: сборка работает из любой папки/подпути
+  base: '/NASA_Space_Apps_2026/',                       // относительные пути: сборка работает из любой папки/подпути
   server: { proxy: trekProxy },     // npm run dev
   preview: { proxy: trekProxy },    // npm run preview (тоже на localhost)
   build: {
