@@ -11,7 +11,7 @@ The code is plain JavaScript (ES modules) on three.js r128 and Vite.
 - **3D globe with real relief,** lit by the actual current Sun position, with terrain shadows, atmosphere glow, and the moons Phobos and Deimos.
 - **Flat map:** switch between the globe and an equirectangular map. All layers work in both.
 - **Eight data layers:** natural color, elevation (MOLA), modelled live surface temperature, roughness, global dust, plagioclase, sheet silicates / high-Si glass and thermal inertia.
-- **Grid, place labels and legend:** a 30° latitude/longitude grid with local solar time per sector, optional name labels on the planet, and color legends.
+- **Grid, place labels and legend:** a latitude/longitude grid with local solar time per sector, optional name labels on the planet, and color legends.
 
 **Places, marks and routes**
 - **Places of interest:** ten places plus the two moons, each with an information card, a highlight ring and a fly-to.
@@ -38,7 +38,7 @@ npm install
 npm run build:standalone
 ```
 
-Open the index.html from standalone/dist
+Open the `index.html` from `standalone/dist`.
 
 ## Controls
 
